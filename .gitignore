@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 
+# local Geofabrik / OSM extracts used to rebuild indexes (hundreds of MB)
+*.osm.pbf
+
 # local backups and logs
 backups/
 *.log
