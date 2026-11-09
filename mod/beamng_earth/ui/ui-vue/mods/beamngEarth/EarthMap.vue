@@ -264,6 +264,11 @@
         </button>
         <button class="map-btn small" @click="clearGps">Clear</button>
       </div>
+      <div class="gps-chip-row gps-avoid" title="Prefer a route that stays off this. Highways means motorways and expressways, so the route takes national roads. One at a time; a road of that kind is still used when there is no other way. Click the active one again for the fastest route.">
+        <span class="gps-avoid-label">Avoid</span>
+        <button v-for="a in routeAvoids" :key="a.id" type="button" class="map-btn small"
+          :class="{ primary: state.gps.avoid === a.id }" @click="setRouteAvoid(state.gps.avoid === a.id ? 'off' : a.id)">{{ a.label }}</button>
+      </div>
     </div>
     <!-- the route's elevation profile (server routing.resample + dem.sample, smoothed), with where the car is on it: a
          box of its own under the GPS box (the user, 2026-10-27) -->
@@ -1641,6 +1646,22 @@ function setGps(lat, lon, name, then) {
     }
   })
 }
+// one thing the route prefers to stay off (settings routeAvoid). One at a time; clicking the active one again
+// is the fastest route.
+const routeAvoids = [
+  { id: "motorway", label: "Highways" },
+  { id: "toll", label: "Tolls" },
+  { id: "ferry", label: "Ferries" },
+]
+function setRouteAvoid(v) {
+  if (!state.value.gps) return
+  engineLua(`beamngEarth_settings and beamngEarth_settings.uiSet("routeAvoid", ${luaStr(v)}) or nil`, r => {
+    if (!r || r.ok === false || !state.value.gps) return
+    state.value = { ...state.value, gps: { ...state.value.gps, avoid: r.value || v, planning: true, routeVersion: 0 } }
+    routePts.value = []
+    routeVersion = 0
+  })
+}
 // the car drives itself along the route; turned on, the map closes so the drive can be watched
 function setAutodrive(on) {
   engineLua(`beamngEarth_settings and beamngEarth_settings.uiGpsAutodrive(${on ? "true" : "false"}) or nil`, r => {
@@ -2201,6 +2222,8 @@ const fmtLatLon = mm.fmtLatLon
 .elev-title { font-size: 12px; color: #c8d2dc; }
 .elev-climb { margin-left: 6px; color: #9aa4ae; }
 .gps-chip-row { display: flex; gap: 8px; align-items: center; }
+.gps-avoid { flex-wrap: wrap; }
+.gps-avoid-label { color: #9aa4ae; font-size: 12px; }
 .gps-dist { color: #9fd3ff; }
 .elev-profile { display: flex; gap: 8px; align-items: flex-end; }
 .elev-svg { display: block; flex-shrink: 0; }

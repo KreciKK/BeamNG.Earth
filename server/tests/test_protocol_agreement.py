@@ -186,7 +186,8 @@ MOD_TO_SERVER = {
     "area_cmd": {"id": F(int), "area": F(str), "op": F(str)},     # op: pause, resume, delete, fast, slow
     "route": {"id": F(int), "lat0": F(NUM), "lon0": F(NUM), "lat1": F(NUM), "lon1": F(NUM),
               "bearing": F(NUM, OPT),    # the GPS (routing.py); bearing: the car's heading, the route starts that way
-              "download": F(str, OPT)},  # the "Download along route" setting: off / ahead / route (route_download)
+              "download": F(str, OPT),   # the "Download along route" setting: off / ahead / route (route_download)
+              "exclude": F(str, OPT)},   # one class left out: motorway, toll or ferry (routing.EXCLUDES); absent: fastest
     "where": {"id": F(int), "lat": F(NUM), "lon": F(NUM), "online": F(bool)},   # the status bar (geocode.py)
     # the 3D map's labels by zoom (map3d.lua; maplabels.py)
     "map_labels": {"id": F(int), "lat": F(NUM), "lon": F(NUM), "zoom": F(NUM), "radius": F(NUM)},

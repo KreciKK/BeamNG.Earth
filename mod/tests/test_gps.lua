@@ -161,6 +161,14 @@ do -- the route request carries the car's heading (a nil global here once broke 
   T.check(ok, 'update with a destination runs: ' .. tostring(err))
   T.check(got and got.b == 90, 'the route request has the heading east: ' .. tostring(got and got.b))
   G.clear()
+  T.check(G.replan() == false, 'no destination: a new avoidance does not plan')
+  G.setDestination(39.3, -76.6, 'avoid')
+  got = nil
+  T.check(G.replan() == true and G.status().planning == true and G.status().avoid == 'off',
+    'the same destination is planned again, avoiding nothing by default')
+  local ok2, err2 = pcall(G.update, anchor, { x = 0, y = 0, lat = 39.28, lon = -76.59 })
+  T.check(ok2 and got and got.b == 90, 'the new plan asks for a route: ' .. tostring(err2))
+  G.clear()
   beamngEarth_core, getPlayerVehicle = savedCore, savedGet
 end
 do -- the minimap's distance counts the whole planned route, not only the arrows' reach

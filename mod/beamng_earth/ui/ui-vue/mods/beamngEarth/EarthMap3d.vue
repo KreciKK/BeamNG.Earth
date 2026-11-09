@@ -91,6 +91,11 @@
             {{ ms.gps.autodrive ? "Autodrive on" : "Autodrive" }}</button>
           <button class="map-btn small" @click="clearGps">Clear</button>
         </div>
+        <div class="gps-chip-row gps-avoid" title="Prefer a route that stays off this. Highways means motorways and expressways, so the route takes national roads. One at a time; a road of that kind is still used when there is no other way. Click the active one again for the fastest route.">
+          <span class="gps-avoid-label">Avoid</span>
+          <button v-for="a in routeAvoids" :key="a.id" type="button" class="map-btn small"
+            :class="{ primary: ms.gps.avoid === a.id }" @click="setRouteAvoid(ms.gps.avoid === a.id ? 'off' : a.id)">{{ a.label }}</button>
+        </div>
       </div>
     </div>
 
@@ -266,6 +271,18 @@ function setTarget(t) {
 function setGps(lat, lon, name) {
   engineLua(`beamngEarth_settings and beamngEarth_settings.uiMapGps(${num(lat)}, ${num(lon)}, ${luaStr(name || "")}) or nil`, r => {
     if (r && r.ok) { ms.value = { ...ms.value, gps: { lat, lon, name, planning: true } }; showToast("GPS destination set") }
+  })
+}
+const routeAvoids = [
+  { id: "motorway", label: "Highways" },
+  { id: "toll", label: "Tolls" },
+  { id: "ferry", label: "Ferries" },
+]
+function setRouteAvoid(v) {
+  if (!ms.value.gps) return
+  engineLua(`beamngEarth_settings and beamngEarth_settings.uiSet("routeAvoid", ${luaStr(v)}) or nil`, r => {
+    if (!r || r.ok === false || !ms.value.gps) return
+    ms.value = { ...ms.value, gps: { ...ms.value.gps, avoid: r.value || v, planning: true } }
   })
 }
 function setAutodrive(on) {
@@ -541,6 +558,8 @@ onUnmounted(() => {
   padding: 5px 8px 5px 12px; font-size: 13px; background: rgba(15, 18, 22, 0.88); border: 1px solid #36a3ff; border-radius: 5px;
 }
 .gps-chip-row { display: flex; gap: 8px; align-items: center; }
+.gps-avoid { flex-wrap: wrap; }
+.gps-avoid-label { color: #9aa4ae; font-size: 12px; }
 .gps-dist { color: #9fd3ff; }
 .gps-warn { color: #ffb08a; font-size: 12px; }
 .map-notice {

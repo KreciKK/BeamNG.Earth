@@ -83,6 +83,7 @@ local vehGraph = {}     -- vehicle id -> the game's map buildSerial when its map
 local pathWait = nil    -- os.clock() since a path waits for the car to have the graph it was planned on
 local targetS = nil     -- the route distance of the arrows' target
 local downloadProgress = nil   -- { total, done, active } | nil: the route's corridor prefetch (server routeahead.py)
+local wantPlan = false         -- a destination is waiting for its first request (setDestination / replan)
 
 -- Pure: the id and position {x, y, z} of the node in `nodes` (map.getMap().nodes: id -> { pos = {x, y, z} })
 -- nearest (tx, ty), and its distance; nil when there are none.
@@ -223,8 +224,28 @@ local function requestRoute(player)
   local d = veh and veh.getDirectionVector and veh:getDirectionVector()
   local b = d and M.compass(d.x, d.y)
   if c.requestRoute(nextId, player.lat, player.lon, dest.lat, dest.lon, b) then
-    pendingId, lastRequest = nextId, os.clock()
+    pendingId, lastRequest, wantPlan = nextId, os.clock(), false
   end
+end
+
+-- The avoidance setting changed (settings routeAvoid): the same destination, planned again with the new class.
+function M.replan()
+  if not dest then return false end
+  route, routeError, pendingId, enu, progress, info, progressS = nil, nil, nil, nil, 1, nil, nil
+  leastRemaining, routeFails = nil, 0
+  routedTo, targetS, lastCheck, lastRequest = nil, nil, -math.huge, -math.huge
+  downloadProgress = nil
+  wantPlan = true
+  clearArrows()
+  return true
+end
+
+-- What the next route prefers to stay off (settings routeAvoid), or 'off' for the fastest route.
+function M.routeAvoid()
+  local ok, settings = pcall(require, 'beamngEarth/settings')
+  local v = ok and settings.get and settings.get('routeAvoid')
+  if v == 'motorway' or v == 'toll' or v == 'ferry' then return v end
+  return 'off'
 end
 
 function M.setDestination(lat, lon, name)
@@ -235,13 +256,14 @@ function M.setDestination(lat, lon, name)
   leastRemaining, routeFails = nil, 0
   routedTo, lastCheck, lastRequest = nil, -math.huge, -math.huge     -- plan and route at the next update
   downloadProgress = nil         -- the previous destination's bar, not this one's (its own push is coming)
+  wantPlan = true
   return true
 end
 
 function M.clear()
   if auto then M.setAutodrive(false) end
   dest, route, routeError, pendingId, enu, info = nil, nil, nil, nil, nil, nil
-  downloadProgress = nil
+  downloadProgress, wantPlan = nil, false
   clearArrows()
 end
 
@@ -263,7 +285,8 @@ function M.status()
   return { lat = dest.lat, lon = dest.lon, name = dest.name, dist = info and info.dist, bearing = info and info.bearing,
            metric = metric(),
            remaining = info and info.remaining, eta = info and info.eta, routeVersion = route and route.version or 0,
-           progress = progress, planning = pendingId ~= nil, routeError = routeError, pendingId = pendingId,
+           progress = progress, planning = pendingId ~= nil or wantPlan, routeError = routeError, pendingId = pendingId,
+           avoid = M.routeAvoid(),
            autodrive = auto, autoNodes = autoPath and #autoPath or nil, off = info and info.off, arrows = routedTo,
            routeDownload = downloadProgress, replans = M.noProgressReplans, recoveries = M.autoRecoveries }
 end

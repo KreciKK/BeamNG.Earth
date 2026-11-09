@@ -135,6 +135,11 @@ M.SCHEMA = {
   -- (20 km), or the whole route (up to 300 miles)
   routeDownload = { kind = 'enum', default = 'ahead', values = { 'off', 'ahead', 'route' },
     label = 'Download along the GPS route' },
+  -- one thing the GPS route prefers to stay off (routing.EXCLUDES). Planned by Valhalla, because the OSRM server
+  -- rejects exclude=; a motorway, toll or ferry is still used when nothing else connects. off is the fastest OSRM
+  -- route. A change plans the current destination again (APPLY).
+  routeAvoid = { kind = 'enum', default = 'off', values = { 'off', 'motorway', 'toll', 'ferry' },
+    label = 'GPS route avoids' },
   devOutlineKm = { kind = 'number', default = 3, min = 0.5, max = 20, label = 'Dev outlines radius (km)' },
   devMapKm = { kind = 'number', default = 10, min = 1, max = 80, label = 'Dev mini-map radius (km)' },
   -- not on the page (not in ORDER): the welcome version last shown (EarthWelcome.vue)
@@ -150,7 +155,7 @@ M.ORDER = { 'quality', 'framePacing', 'terrainDetail', 'groundPhoto', 'trees', '
   'dashboardSatellite',
   'hudVisible', 'statusBar', 'profilerMode', 'runtimeProfiler',
   'placeNamesOnline', 'telemetry', 'telemetryPerf', 'telemetryNet', 'mapStyle', 'creditsVisible', 'beammpOnLaunch',
-  'creditsCorner', 'creditsSize', 'cacheCapGb', 'routeDownload', 'serverCores', 'serverPriority', 'teleportPriority', 'devOutlineKm',
+  'creditsCorner', 'creditsSize', 'cacheCapGb', 'routeAvoid', 'routeDownload', 'serverCores', 'serverPriority', 'teleportPriority', 'devOutlineKm',
   'devMapKm' }
 
 -- Stored but not on the settings page
@@ -515,6 +520,10 @@ M.APPLY = {
   cacheCapGb = function()
     local core = ext('beamngEarth_core')
     if core and core.cacheSetCap then core.cacheSetCap(M.cacheCapGb()) end
+  end,
+  routeAvoid = function()
+    local gps = require('beamngEarth/gps')
+    if gps.replan then gps.replan() end
   end,
   devOutlineKm = function(v)
     local dev = ext('beamngEarth_dev')

@@ -54,6 +54,9 @@ end
 for _, k in ipairs(settings.PRESET_KEYS) do
   T.check(settings.PRESETS.high[k] == d[k], 'High is the old default of ' .. k)
 end
+T.check(d.routeAvoid == 'off', 'a GPS route avoids nothing until asked')
+T.check(settings.validate('routeAvoid', 'motorway') == 'motorway' and settings.validate('routeAvoid', 'primary') == nil,
+  'route avoidance: motorway, toll or ferry')
 T.check(d.rebaseDistance == rebase.DEFAULT_DISTANCE and d.skyMode == 'real' and d.clouds == true
   and d.viewDistanceMode == 'horizon' and d.viewDistanceKm == 100 and d.hudVisible == false,
   'defaults (15 km rebase, real sky, clouds on, the real horizon (2026-10-11), 100 km fixed, HUD hidden with the page)')
