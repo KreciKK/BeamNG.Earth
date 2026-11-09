@@ -219,6 +219,12 @@ LAYERS = {
                            text=("subtype", "country", "region", "division_id", "name")
                                 + tuple(f"name_{lang}" for lang in DIVISION_LANGS) + ("src_dataset", "src_record"),
                            float=("x0", "y0", "x1", "y1")),
+    # locality polygons for Polish place-name signs (citylimits.py): land-clipped rings only; geometry is read
+    # (unlike division_areas above). Prefer is_land so coastal water is not treated as town limits.
+    "locality_areas": dict(theme="divisions", type="division_area", clip=False,
+                           cols=f"subtype, country, division_id, {_NAME}, {_SRC}",
+                           where="subtype = 'locality' AND coalesce(is_land, true) AND names.\"primary\" IS NOT NULL",
+                           text=("subtype", "country", "division_id", "name", "src_dataset", "src_record")),
     # the route numbers of the roads (direction signs, dirsigns.py): transportation/segment's `routes` (a road's route
     # memberships: national / regional numbers, the European E-roads) flattened to one text column "network|ref|from|to;..."
     # (from, to: the share of the segment a membership covers). Its own layer, joined to `roads` by id, so the roads

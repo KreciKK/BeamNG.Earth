@@ -86,5 +86,26 @@
       {},
       {}
     ]
+  },
+  "bne_post_red": {
+    "name": "bne_post_red",
+    "mapTo": "bne_post_red",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [
+          0.72,
+          0.05,
+          0.06,
+          1.0
+        ],
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.55
+      },
+      {},
+      {},
+      {}
+    ]
   }
 }

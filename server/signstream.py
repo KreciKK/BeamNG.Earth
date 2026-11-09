@@ -1,6 +1,6 @@
 """Highway signs (from cody196's PR #363): optional scenery built per road tile after the tile's roads were sent,
 never part of their collision or readiness. A sign tile is sent as a `roads_tile` with key "s<tx>_<ty>" and the
-fields exits / mileposts / merges / speeds (render-only shapes, pooled slots); the mod's highwaySigns setting hides them.
+fields exits / mileposts / merges / speeds / dirs / hektoposts / citylimits / speedcams (render-only shapes, pooled slots); the mod's highwaySigns setting hides them.
 
 Every guide sign face is drawn to the US MUTCD (green guide panels, Interstate / US / state shields, the yellow merge
 diamond, Interstate mile markers): those are built where signstates finds a US state (BNE_SIGNS_WORLD=1: everywhere,
@@ -14,7 +14,10 @@ import time
 
 import numpy as np
 
+import citylimits
 import highwaysigns
+import speedcams
+import hektoposts
 import mergesigns
 import roadmesh
 import roads
@@ -24,8 +27,8 @@ import speedsigns
 import staging
 
 log = logging.getLogger('earthd.signs')
-KINDS = ('exits', 'mileposts', 'merges', 'speeds', 'dirs')
-WORKERS = 1                     # sign tiles in flight per connection (Tracker): a road tile waits behind one at most
+KINDS = ('exits', 'mileposts', 'merges', 'speeds', 'dirs', 'hektoposts', 'citylimits', 'speedcams')
+WORKERS = 2                     # sign tiles in flight per connection (Tracker); 1 lagged at speed behind roads
 WORLD = os.environ.get("BNE_SIGNS_WORLD") == "1"
 
 
@@ -76,6 +79,9 @@ def build_tile(md, frame, aid, tx, ty, elev, out_dir, vfs_dir, urban=None, width
                 decks.append({'deck': True, 'n': pts, 'w': spec.width})
     speeds = _speeds(frame, tx, ty, elev, context, decks, left_hand, mph, speedsigns.style(country, us))
     dir_mesh, dir_faces = _dirs(md, frame, tx, ty, elev, context, decks, left_hand, mph, out_dir, vfs_dir)         if dirs else (None, {})
+    hecto = _hektoposts(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths)
+    city = _citylimits(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths)
+    cams = _speedcams(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths)
     import euguardrails
     french = False
     if euguardrails.enabled():
@@ -86,11 +92,11 @@ def build_tile(md, frame, aid, tx, ty, elev, out_dir, vfs_dir, urban=None, width
                    ((x0, y0), (x0, y1), (x1, y0), (x1, y1), ((x0 + x1) / 2, (y0 + y1) / 2))]
         french = 'FR' in countrybounds.bundled().codes_at([(la, lo) for la, lo, _ in samples])
     if not (WORLD or us or french):
-        # (not the US: no guide signs)
-        return write_tile(out_dir, vfs_dir, aid, tx, ty, (None, None, None, speeds, dir_mesh), dir_faces)
+        # (not the US: no guide signs; Polish hectometre posts, place signs and cameras still stand)
+        return write_tile(out_dir, vfs_dir, aid, tx, ty, (None, None, None, speeds, dir_mesh, hecto, city, cams), dir_faces)
     exits, miles = highwaysigns.build_tile(md, frame, tx, ty, elev, decks, left_hand, mph, urban, widths, french=french)
     merges = None if french else mergesigns.build_tile(frame, tx, ty, [feats], elev, decks, urban, widths, left_hand, context)
-    return write_tile(out_dir, vfs_dir, aid, tx, ty, (exits, miles, merges, speeds, dir_mesh), dir_faces)
+    return write_tile(out_dir, vfs_dir, aid, tx, ty, (exits, miles, merges, speeds, dir_mesh, hecto, city, cams), dir_faces)
 
 
 _warned = -float('inf')
@@ -124,6 +130,51 @@ def _dirs(md, frame, tx, ty, elev, context, decks, left_hand, mph, out_dir, vfs_
 
 
 _warned_dirs = -float('inf')
+_warned_hecto = -float('inf')
+_warned_city = -float('inf')
+_warned_cams = -float('inf')
+
+
+def _hektoposts(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths):
+    """hektoposts.build_tile, or None: optional scenery never stops the other signs."""
+    global _warned_hecto
+    try:
+        return hektoposts.build_tile(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths)
+    except Exception as error:
+        now = time.monotonic()
+        if now - _warned_hecto >= 60.:
+            _warned_hecto = now
+            log.warning('Polish hectometre posts unavailable; roads continue: %s: %s',
+                        type(error).__name__, error)
+        return None
+
+
+def _citylimits(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths):
+    """citylimits.build_tile, or None: optional scenery never stops the other signs."""
+    global _warned_city
+    try:
+        return citylimits.build_tile(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths)
+    except Exception as error:
+        now = time.monotonic()
+        if now - _warned_city >= 60.:
+            _warned_city = now
+            log.warning('Polish place / built-up signs unavailable; roads continue: %s: %s',
+                        type(error).__name__, error)
+        return None
+
+
+def _speedcams(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths):
+    """speedcams.build_tile, or None: optional scenery never stops the other signs."""
+    global _warned_cams
+    try:
+        return speedcams.build_tile(md, frame, tx, ty, elev, context, decks, left_hand, country, urban, widths)
+    except Exception as error:
+        now = time.monotonic()
+        if now - _warned_cams >= 60.:
+            _warned_cams = now
+            log.warning('Speed cameras unavailable; roads continue: %s: %s',
+                        type(error).__name__, error)
+        return None
 
 
 class Tracker:
@@ -151,9 +202,12 @@ class Tracker:
         self.stale.update(self.sent)
         self.retry.clear()
 
-    def on_pose(self, conn, aid, x, y, loop, build, ready, version=None):
+    def on_pose(self, conn, aid, x, y, loop, build, ready, version=None, vel=None):
         """ready: the road tiles the mod has (roads.Tracker.sent); version: the sign data's build known now
-        (SignTags.known(): no network): a new one rebuilds the tiles sent."""
+        (SignTags.known(): no network): a new one rebuilds the tiles sent.
+
+        vel: optional (vx, vy) m/s — at speed, build tiles ahead of the car first (roads.path_key).
+        """
         if self.closed:
             return
         if version != self.version:         # (None -> a build too: the tiles sent before had no sign data)
@@ -179,7 +233,13 @@ class Tracker:
         now = time.monotonic()
         want = [k for k in self.wanted if (k not in self.sent or k in self.stale)
                 and (aid, k) not in self.jobs and self.retry.get(k, 0.) <= now]
-        want.sort(key=lambda k: roads.tile_distance(*k, x, y))
+        vx = vy = 0.0
+        if vel is not None and len(vel) >= 2:
+            vx, vy = float(vel[0]), float(vel[1])
+        if (vx * vx + vy * vy) ** 0.5 >= roads.FAST_MS:
+            want.sort(key=roads.path_key(x, y, vx, vy))
+        else:
+            want.sort(key=lambda k: roads.tile_distance(*k, x, y))
         if want and self.pool is None:
             self.pool = ThreadPoolExecutor(WORKERS, thread_name_prefix='highway-signs')
         for key in want[:max(0, WORKERS - len(self.jobs))]:

@@ -267,6 +267,8 @@ class MapData:
         self.overture = overture.Reader(self.raw_dir, self.fetcher, release, threads)
         import picnicsource            # (OSM picnic tables: Overture's picnic_table class is unpopulated)
         self.picnic_osm = picnicsource.Source(self.overture, self.fetcher)
+        import placebounds             # (OSM admin place polygons: citylimits synthetic E-17a/E-18a)
+        self.placebounds = placebounds.Source(self.overture, self.fetcher)
         import billboardsource         # (OSM billboards: Overture does not keep advertising=billboard)
         self.billboard_osm = billboardsource.Source()
         # the per-cell sources a road tile's props read without waiting (cells(keys, wait=False)): side_prefetch starts

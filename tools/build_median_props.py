@@ -35,6 +35,7 @@ COLOURS = {
     "bne_cable_reflector": ((0.92, 0.92, 0.90), 0.0, 0.3),   # its white reflective band
     "bne_post_white": ((0.86, 0.87, 0.85), 0.0, 0.55),
     "bne_post_black": ((0.02, 0.02, 0.02), 0.0, 0.55),
+    "bne_post_red": ((0.72, 0.05, 0.06), 0.0, 0.55),       # Polish U-1 hectometre band
 }
 B1_W = 0.90                         # m across the rounded corners
 B1_S = B1_W * 507 / 456             # m: the sides extended to sharp corners

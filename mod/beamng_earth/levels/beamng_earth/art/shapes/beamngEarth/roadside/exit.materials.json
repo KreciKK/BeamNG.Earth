@@ -87,6 +87,83 @@
     ],
     "castShadows": true
   },
+  "bne_citylimit_green": {
+    "name": "bne_citylimit_green",
+    "mapTo": "bne_citylimit_green",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [
+          0.02,
+          0.28,
+          0.13,
+          1
+        ],
+        "roughnessFactor": 0.22,
+        "metallicFactor": 0.0,
+        "clearCoatFactor": 0.55,
+        "clearCoatRoughness": 0.12
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": true
+  },
+  "bne_citylimit_white": {
+    "name": "bne_citylimit_white",
+    "mapTo": "bne_citylimit_white",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [
+          1.0,
+          1.0,
+          1.0,
+          1
+        ],
+        "roughnessFactor": 0.18,
+        "metallicFactor": 0.05,
+        "clearCoatFactor": 0.7,
+        "clearCoatRoughness": 0.08
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": true
+  },
+  "bne_citylimit_letters": {
+    "name": "bne_citylimit_letters",
+    "mapTo": "bne_citylimit_letters",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [
+          1.0,
+          1.0,
+          1.0,
+          1
+        ],
+        "roughnessFactor": 0.18,
+        "metallicFactor": 0.05,
+        "clearCoatFactor": 0.7,
+        "clearCoatRoughness": 0.08,
+        "opacityMap": "/levels/beamng_earth/art/shapes/beamngEarth/roadside/sign_letters_o.data.png",
+        "opacityFactor": 1.0
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": false,
+    "alphaTest": true,
+    "alphaRef": 64,
+    "translucent": false
+  },
   "bne_exit_white": {
     "name": "bne_exit_white",
     "mapTo": "bne_exit_white",
@@ -304,6 +381,74 @@
       {
         "baseColorMap": "/levels/beamng_earth/art/shapes/beamngEarth/bne_se_signs2.png",
         "roughnessFactor": 0.65,
+        "metallicFactor": 0.0
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": false
+  },
+  "bne_post_white": {
+    "name": "bne_post_white",
+    "mapTo": "bne_post_white",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [0.86, 0.87, 0.85, 1.0],
+        "roughnessFactor": 0.55,
+        "metallicFactor": 0.0
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": true
+  },
+  "bne_post_red": {
+    "name": "bne_post_red",
+    "mapTo": "bne_post_red",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [0.72, 0.05, 0.06, 1.0],
+        "roughnessFactor": 0.55,
+        "metallicFactor": 0.0
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": true
+  },
+  "bne_hecto_reflector": {
+    "name": "bne_hecto_reflector",
+    "mapTo": "bne_hecto_reflector",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [0.95, 0.95, 0.92, 1.0],
+        "roughnessFactor": 0.25,
+        "metallicFactor": 0.05
+      },
+      {},
+      {},
+      {}
+    ],
+    "castShadows": false
+  },
+  "bne_hecto_plate": {
+    "name": "bne_hecto_plate",
+    "mapTo": "bne_hecto_plate",
+    "class": "Material",
+    "version": 1.5,
+    "Stages": [
+      {
+        "baseColorFactor": [0.72, 0.72, 0.70, 1.0],
+        "roughnessFactor": 0.7,
         "metallicFactor": 0.0
       },
       {},
