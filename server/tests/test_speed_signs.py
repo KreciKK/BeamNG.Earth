@@ -1,5 +1,6 @@
 """Speed-limit signs (speedsigns.py, earthfast speed_sign_place / speed_sign_mesh): where they stand and how they look."""
 import json
+import math
 import os
 import sys
 import unittest
@@ -119,6 +120,50 @@ class PlaceTest(unittest.TestCase):
     def test_only_in_the_box(self):
         rows = [row([(-600, 0), (0, 0)], 35), row([(0, 0), (600, 0)], 55)]
         self.assertEqual(len(place(rows, box=(-1000, -1000, -500, -500))), 0)
+
+    def test_roundabout_exits_have_no_junction_signs(self):
+        """Ring arms demoted to rank 0: exits are not treated as major junctions."""
+        R = 30.0
+        ring_rows, arm_rows, fid_rows = [], [], []
+        for k in range(6):
+            a0, a1 = k * math.pi / 3, (k + 1) * math.pi / 3
+            t = np.linspace(a0, a1, 5)
+            xy = np.column_stack([R * np.cos(t), R * np.sin(t)])
+            r = row(xy, 40, rank=4, way=1, ends=(f"j{k}", f"j{(k + 1) % 6}"))
+            ring_rows.append(r)
+            fid_rows.append((f"r{k}", r))
+        # ring nodes at 0°, 60°, …; exits on every other node (0°, 120°, 180°, 300°)
+        for i, k in enumerate((0, 2, 3, 5)):
+            ang = k * math.pi / 3
+            xy = np.array([[R * math.cos(ang), R * math.sin(ang)],
+                           [(R + 400) * math.cos(ang), (R + 400) * math.sin(ang)]], float)
+            r = row(xy, 40, rank=4, ends=(f"j{k}", f"out{i}"))
+            arm_rows.append(r)
+            fid_rows.append((f"a{i}", r))
+        before = place(ring_rows + arm_rows)
+        exit_before = [s for s in before if np.hypot(s[0], s[1]) > R + 10]
+        self.assertGreater(len(exit_before), 0, "without demotion: junction signs on the exits")
+        demoted = speedsigns._demote_ring_ranks(fid_rows)
+        after = place(demoted)
+        exit_after = [s for s in after if np.hypot(s[0], s[1]) > R + 10 and abs(s[4] - 40) < 0.5]
+        self.assertEqual(len(exit_after), 0, "ring rank 0: no JUNCTION signs leaving the roundabout")
+
+    def test_roundabout_exit_still_signs_a_limit_change(self):
+        """Intra-road limit changes still place signs after ring ranks are demoted."""
+        R = 30.0
+        fid_rows = []
+        for k in range(6):
+            a0, a1 = k * math.pi / 3, (k + 1) * math.pi / 3
+            t = np.linspace(a0, a1, 5)
+            xy = np.column_stack([R * np.cos(t), R * np.sin(t)])
+            r = row(xy, 30, rank=4, way=1, ends=(f"j{k}", f"j{(k + 1) % 6}"))
+            fid_rows.append((f"r{k}", r))
+        xy = np.array([[R, 0.0], [R + 400, 0.0]], float)
+        arm = row(xy, 0, rank=4, ends=("j0", "out0"), lims=[(0.0, 30.0), (0.25, 50.0)])
+        fid_rows.append(("a0", arm))
+        signs = place(speedsigns._demote_ring_ranks(fid_rows))
+        east = [s for s in signs if s[2] > 0.9 and s[4] == 50 and s[0] > R + 50]
+        self.assertTrue(east, "a mapped limit change along the exit still gets a CHANGE sign")
 
 
 @unittest.skipUnless(getattr(fast._ef, "VERSION", 0) >= speedsigns.KERNEL, "earthfast with the speed-sign kernels")

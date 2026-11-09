@@ -188,6 +188,47 @@ class RingTest(unittest.TestCase):
                 ("j1", two, np.array([(0.0, 200.0, 0.0), (12.0, 200.0, 0.0)]), 0.0)]
         self.assertEqual(islands.ring_fids(pair), set(), "a divided road's carriageways: no ring")
 
+    def test_smooth_ring_pts_fits_an_octagon_to_a_circle(self):
+        R = 20.0
+        t = np.linspace(0, 2 * math.pi, 8, endpoint=False)
+        octagon = np.column_stack([R * np.cos(t), R * np.sin(t), np.zeros(8)])
+        out = islands.smooth_ring_pts(octagon, closed=True, circle=True)
+        xy = out[:-1, :2] if len(out) > 1 and np.hypot(*(out[0, :2] - out[-1, :2])) < 0.05 else out[:, :2]
+        r = np.hypot(xy[:, 0], xy[:, 1])
+        self.assertLess(float(r.max() - r.min()), 0.3, "smoothed octagon lies on a circle")
+        self.assertGreater(len(xy), 8, "resampled denser than the eight corners")
+
+    def test_smooth_ring_roads_keeps_junction_ends(self):
+        two = roads.Spec(7.0, "paved", True, "tertiary", False)
+        rs = [(f"c{k}", two, arc(14, k * math.pi / 3, (k + 1) * math.pi / 3, 3), 0.0) for k in range(6)]
+        ring = islands.ring_directions(rs)
+        self.assertEqual(set(ring), {f"c{k}" for k in range(6)})
+        ends0 = {fid: (pts[0, :2].copy(), pts[-1, :2].copy()) for fid, _, pts, _ in rs}
+        out = islands.smooth_ring_roads(rs, ring)
+        for fid, _, pts, _ in out:
+            if fid in ends0:
+                np.testing.assert_allclose(pts[0, :2], ends0[fid][0], atol=1e-9)
+                np.testing.assert_allclose(pts[-1, :2], ends0[fid][1], atol=1e-9)
+
+    def test_roundabout_tile_has_cobble_apron_and_island_curb(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_roads import FRAME, flat, features, rules
+        R, cx, cy = 22.0, 128.0, 128.0
+        t = np.linspace(0, 2 * math.pi, 48, endpoint=False)
+        ring = [(cx + R * np.cos(a), cy + R * np.sin(a)) for a in t] + [(cx + R, cy)]
+        arms = [[(cx + R * math.cos(a), cy + R * math.sin(a)),
+                 (cx + (R + 80) * math.cos(a), cy + (R + 80) * math.sin(a))]
+                for a in (0, math.pi / 2, math.pi, 3 * math.pi / 2)]
+        f = features([ring] + arms, ["tertiary"] * 5)
+        f.rules["oneway"] = rules([(0, 1.0)], "float")
+        walks = []
+        chunks = roads.build_tile(FRAME, 0, 0, [f], flat, lambda la, lo: np.ones(np.shape(la), bool),
+                                  walks=walks)
+        self.assertTrue(any(w.get("fid") == "island" for w in walks), "island curb walk")
+        cobble = [c for c in chunks if c.get("m") == roads.LOOK["cobble"]["m"]]
+        self.assertTrue(cobble, "cobble apron chunks around the island")
+        self.assertTrue(any(abs(float(c["w"]) - islands.ISLAND_APRON_M) < 0.05 for c in cobble))
+
 
 
 class NearEdgesTest(unittest.TestCase):

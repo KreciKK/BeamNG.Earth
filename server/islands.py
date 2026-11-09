@@ -26,7 +26,9 @@ SMALL_AREA_M2 = 1200.0  # below this: any mostly-one-way loop (turnarounds, tear
 MIN_AREA_M2 = 25.0
 ONEWAY_SHARE = 0.4      # at least this share of the loop's length one-way
 ISLAND_BAND_M = 1.2     # the island's curb band (a sidewalk run this wide, inward)
+ISLAND_APRON_M = 2.0    # cobble truck apron between the circulatory asphalt and the island curb
 MIN_INSET_AREA_M2 = 6.0  # an inset loop smaller than this (a thin median): no island ring, only no inner sidewalks
+RING_SAMPLE_M = 2.0     # m between resampled vertices on a smoothed ring centreline
 
 
 def _area(xy):
@@ -108,6 +110,124 @@ RING_MAX_EDGES = 10
 RING_ROUND_ANY = 0.9        # this round: a ring whatever its oneway tags (Timisoara's ring had none at all)
 RING_ROUND = 0.82           # this round: a ring if RING_ONEWAY_SHARE of it is one-way, all driven the same way round
 RING_ONEWAY_SHARE = 0.5
+
+
+def smooth_ring_pts(pts, closed=True, circle=None, sample_m=RING_SAMPLE_M):
+    """Closed ring polyline (k, >=2) resampled onto a fitted circle when round enough, else a light closed
+    moving average. circle: force circle fit (True) / never (False) / decide from roundness (None). Pure."""
+    pts = np.asarray(pts, np.float64)
+    if len(pts) < 3:
+        return pts.copy()
+    xy = pts[:, :2]
+    z = pts[:, 2] if pts.shape[1] >= 3 else None
+    if closed and len(xy) > 1 and float(np.hypot(*(xy[0] - xy[-1]))) < 0.05:
+        work, zw = xy[:-1], (None if z is None else z[:-1])
+    else:
+        work, zw = xy, z
+    if len(work) < 3:
+        return pts.copy()
+    L = float(np.sum(np.hypot(*np.diff(np.vstack([work, work[:1]]), axis=0).T)))
+    area = abs(_area(work))
+    rnd = (4 * math.pi * area / (L * L)) if L > 1e-6 else 0.0
+    use_circle = (rnd >= RING_ROUND_ANY) if circle is None else bool(circle)
+    c = work.mean(0)
+    z_mean = float(np.mean(zw)) if zw is not None else None
+    if use_circle:
+        r = float(np.mean(np.hypot(*(work - c).T)))
+        if r < 0.5:
+            return pts.copy()
+        sign = 1.0 if _area(work) >= 0 else -1.0
+        n = max(8, int(round(2 * math.pi * r / max(sample_m, 0.5))))
+        t0 = math.atan2(work[0, 1] - c[1], work[0, 0] - c[0])
+        t = t0 + sign * np.linspace(0.0, 2 * math.pi, n, endpoint=False)
+        out_xy = np.column_stack([c[0] + r * np.cos(t), c[1] + r * np.sin(t)])
+    else:
+        sm = (np.roll(work, 1, 0) + work + np.roll(work, -1, 0)) / 3.0
+        closed_sm = np.vstack([sm, sm[:1]])
+        seglen = np.hypot(*np.diff(closed_sm, axis=0).T)
+        s = np.r_[0.0, np.cumsum(seglen)]
+        if s[-1] < 1e-6:
+            return pts.copy()
+        n = max(len(sm), int(round(s[-1] / max(sample_m, 0.5))))
+        targets = np.linspace(0.0, s[-1], n, endpoint=False)
+        out_xy = np.column_stack([np.interp(targets, s, closed_sm[:, 0]),
+                                  np.interp(targets, s, closed_sm[:, 1])])
+    out = out_xy if z_mean is None else np.column_stack([out_xy, np.full(len(out_xy), z_mean)])
+    if closed:
+        out = np.vstack([out, out[:1]])
+    return out
+
+
+def _interp_loop(loop, targets):
+    """Points of closed loop (k, >=2) with first==last at arc-length targets in [0, length)."""
+    xy = np.asarray(loop, np.float64)
+    d = np.hypot(*np.diff(xy[:, :2], axis=0).T)
+    s = np.r_[0.0, np.cumsum(d)]
+    total = float(s[-1])
+    if total < 1e-9:
+        return np.repeat(xy[:1], max(len(targets), 1), axis=0)
+    t = np.asarray(targets, np.float64) % total
+    cols = [np.interp(t, s, xy[:, j]) for j in range(xy.shape[1])]
+    return np.column_stack(cols)
+
+
+def smooth_ring_roads(roads_list, ring_dir):
+    """roads_list with roundabout ring members' xy replaced by one smoothed closed loop split back onto each
+    segment (same fids / order). Pure given roads_list and ring_dir from ring_directions."""
+    if not ring_dir:
+        return list(roads_list)
+    ring_only = [(fid, sp, pts, lon) for fid, sp, pts, lon in roads_list if fid in ring_dir]
+    if len(ring_only) < 1:
+        return list(roads_list)
+    edges, adj = _graph(sorted(ring_only, key=lambda r: r[0]))
+    smoothed = {}
+    for cyc in _cycles(edges, adj, RING_MAX_EDGES, RING_MAX_LOOP_M):
+        if not all(edges[k][0] in ring_dir for k, _ in cyc):
+            continue
+        parts = []
+        for k, fwd in cyc:
+            fid, _, pts, _, _, L = edges[k]
+            p = np.asarray(pts, np.float64) if fwd else np.asarray(pts, np.float64)[::-1]
+            parts.append((fid, fwd, p, L))
+        if sum(L for *_, L in parts) < 1e-6:
+            continue
+        poly = np.concatenate([p[:-1] for _, _, p, _ in parts])
+        if len(poly) < 3:
+            continue
+        L = sum(L for *_, L in parts)
+        area = abs(_area(poly[:, :2]))
+        rnd = 4 * math.pi * area / (L * L) if L > 1e-6 else 0.0
+        loop = smooth_ring_pts(np.vstack([poly, poly[:1]]), closed=True, circle=(rnd >= RING_ROUND_ANY))
+        # open loop for arc-length sampling (drop duplicate end)
+        open_loop = loop[:-1] if len(loop) > 1 and float(np.hypot(*(loop[0, :2] - loop[-1, :2]))) < 0.05 else loop
+        total = float(np.sum(np.hypot(*np.diff(np.vstack([open_loop[:, :2], open_loop[:1, :2]]), axis=0).T)))
+        if total < 1e-6:
+            continue
+        # apportion the new loop by each part's share of the old length; pin ends so approaches still meet
+        old_L = sum(L for *_, L in parts) or 1.0
+        offset = 0.0
+        for fid, fwd, p, Li in parts:
+            share = total * (Li / old_L)
+            n = max(2, int(round(share / RING_SAMPLE_M)) + 1)
+            targets = np.linspace(offset, offset + share, n, endpoint=True)
+            seg = _interp_loop(np.vstack([open_loop, open_loop[:1]]), targets)
+            if not fwd:
+                seg = seg[::-1]
+            seg = np.array(seg, np.float64, copy=True)
+            seg[0, :2], seg[-1, :2] = p[0, :2], p[-1, :2]
+            if seg.shape[1] >= 3 and p.shape[1] >= 3:
+                seg[0, 2], seg[-1, 2] = p[0, 2], p[-1, 2]
+            smoothed[fid] = seg
+            offset += share
+    if not smoothed:
+        return list(roads_list)
+    out = []
+    for fid, sp, pts, lon in roads_list:
+        if fid in smoothed:
+            out.append((fid, sp, smoothed[fid], lon))
+        else:
+            out.append((fid, sp, pts, lon))
+    return out
 
 
 def ring_directions(roads_list, left_hand=False):

@@ -8886,7 +8886,7 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                walls=None, deck_context=None, ground=None, terrain_paint=True, cover_out=None, walk_cuts=(),
                signals=None, marks=None, roads_out=None, skin_margin=0.0, walks_raw=None, nodes=None,
                clearance_out=None, development=None, pole_profile=None, signs=None,
-               sign_obstacles=None, roadside_jobs=None, towns=None):
+               sign_obstacles=None, roadside_jobs=None, towns=None, refuge=None, refuge_land=None):
     """The chunks of one tile. cells: the mapgeom.Features of the "roads" layer of every cell touching
     the tile; elev(lat, lon) -> metres (the DEM); urban_fn: as road_specs. Features in several cells are
     taken once (by id). The carriageways, then each road's sidewalks / gutters / markings (extras), cut
@@ -8906,7 +8906,10 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     vaults), also used by powerlines.tile_lines. development: a local context (development.py) sampled only by
     furniture.place for the street trees, hydrants, benches and bins on these sidewalks. towns(roads, box,
     left_hand, rings) -> prop rows: the town entry and exit signs among props (townentry.Towns.maker; BNE_TOWNSIGNS;
-    rings: the roundabout rings' ids, which have none). Pure given its inputs (sorted by feature id)."""
+    rings: the roundabout rings' ids, which have none). refuge: [(x, y)] of
+    OpenStreetMap crossing:island / traffic_calming=island nodes (refugeislands.read); refuge_land: land_use
+    traffic_island rings [(outer lon/lat, holes)] (refugeislands.read_land); None or []: none.
+    Pure given its inputs (sorted by feature id)."""
     own_box = tile_bbox(tx, ty)                 # (a geotile's knows its own points: box_owns)
     x0, y0, x1, y1 = own_box
     import furniture
@@ -8963,6 +8966,8 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
         import islands
         ring_dir = islands.ring_directions(roads, left_hand)
         if ring_dir:
+            # one smoothed closed loop split back onto the ring segments (faceted OSM rings read as hexagons)
+            roads = islands.smooth_ring_roads(roads, ring_dir)
             apps = islands.ring_approaches(roads, ring_dir)
             short_apps = {fid for fid, sp, pts, _ in roads if fid in apps
                           and float(np.sum(np.hypot(*np.diff(pts[:, :2], axis=0).T))) < islands.APPROACH_NO_WALK_M}
@@ -9108,13 +9113,23 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
     isl = islands.find(roads, structures=structures) if walks is not None else []
     inner = islands.inner_sides(isl)
     if walks is not None:
+        cobble = LOOK["cobble"]
         for f in isl:
             if f["ring"] is None:
                 continue
             # (from its south-west-most point: each tile finds the loop from its own roads, starting anywhere)
             ring = np.roll(f["ring"], -int(np.lexsort((f["ring"][:, 1], f["ring"][:, 0]))[0]), axis=0)
+            closed = np.vstack([ring[-1:], ring, ring[:2]])
+            # cobble truck apron just outside the curb (toward the circulatory asphalt)
+            if f.get("round") and islands.ISLAND_APRON_M > 0:
+                apron = offset_polyline(closed, -islands.ISLAND_APRON_M / 2)[1:-1]
+                apron = simplify(apron, tol=0.08)
+                for piece in clip_polyline(apron, *wexact):
+                    for c in split(densify(piece, spacing=3.0)):
+                        if len(c) >= 2:
+                            chunks.append(_chunk(cobble, islands.ISLAND_APRON_M, c))
             # (closed: offset with a vertex either side of its start, so its ends meet mitred, not 5 cm apart)
-            band = offset_polyline(np.vstack([ring[-1:], ring, ring[:2]]), islands.ISLAND_BAND_M / 2)[1:-1]
+            band = offset_polyline(closed, islands.ISLAND_BAND_M / 2)[1:-1]
             # tight simplify + denser nodes: the default 0.25 m / 12 m spacing faceted the curb into a hexagon (PR
             # #468). The whole ring simplified before it is clipped, so neighbouring tiles' pieces (each to its box and
             # the skin margin, the skin cutting them exactly at the tile's quad) share its vertices and meet
@@ -9124,6 +9139,28 @@ def build_tile(frame, tx, ty, cells, elev, urban_fn=None, walks=None, bridges=No
                 if len(run) >= 2:
                     walks.append({"pts": run, "side": 1, "caps": (False, False), "ramps": [],
                                   "w": islands.ISLAND_BAND_M, "fid": "island"})
+        # pedestrian refuge islands: land_use traffic_island polygons, then crossing:island nodes
+        if refuge_land or refuge:
+            import refugeislands as _ri
+            all_gaps = []
+            if refuge_land:
+                rw, pads, gaps = _ri.place_polys(frame, elev, refuge_land, wexact)
+                for wk in rw:
+                    mid = wk["pts"].mean(axis=0)
+                    if skin_own(float(mid[0]), float(mid[1])):
+                        walks.append(wk)
+                chunks.extend(pads)
+                all_gaps.extend(gaps)
+            if refuge:
+                rw, pads, gaps = _ri.place(roads, refuge)
+                for wk in rw:
+                    mid = wk["pts"].mean(axis=0)
+                    if skin_own(float(mid[0]), float(mid[1])):
+                        walks.append(wk)
+                chunks.extend(pads)
+                all_gaps.extend(gaps)
+            if all_gaps:
+                crosswalks = _ri.gap_crosswalks(crosswalks, all_gaps)
     cornered = set()                            # road pairs whose sidewalks meet at a curb return
     if walks is not None:
         for (fid, side), cl in jcuts.items():

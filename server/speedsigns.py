@@ -175,6 +175,30 @@ def _outlines(pavements):
     return got
 
 
+def _demote_ring_ranks(fid_rows):
+    """fid_rows [(fid, row)]: rows with roundabout-ring members' rank set to 0 so speed_sign_place does not
+    treat ring exits as major junctions (JUNCTION signs on every arm). Pure."""
+    if not fid_rows:
+        return []
+    import islands
+    from types import SimpleNamespace
+    roads_list = []
+    for fid, (_, pts, meta, *_) in fid_rows:
+        pts = np.asarray(pts, np.float64)
+        if len(pts) < 2:
+            continue
+        hw, way, _, _, _ = meta
+        roads_list.append((fid, SimpleNamespace(oneway=bool(way), dir=int(way) or 0, width=float(hw) * 2),
+                           np.column_stack([pts, np.zeros(len(pts))]), 0.0))
+    ring = islands.ring_fids(roads_list) if roads_list else set()
+    out = []
+    for fid, (line, pts, meta, cons, lims, skips) in fid_rows:
+        if fid in ring:
+            meta = (meta[0], meta[1], 0, meta[3], meta[4])
+        out.append((line, pts, meta, cons, lims, skips))
+    return out
+
+
 def place(frame, box, context, left_hand=False, mph=True, face=STYLE_VIENNA):
     """The speed-limit signs of box (x0, y0, x1, y1): (k, 9) [x, y, travel x, travel y, value, size class, road x,
     road y, urban] (speed_sign_place's)."""
@@ -182,7 +206,7 @@ def place(frame, box, context, left_hand=False, mph=True, face=STYLE_VIENNA):
     x0, y0, x1, y1 = box
     m = MARGIN_M
     la, lo, _ = frame.enu_to_geodetic(np.array([x0 - m, x1 + m]), np.array([y0 - m, y1 + m]), 0.0)
-    rows, seen = [], set()
+    fid_rows, seen = [], set()
     for key in mapcells.cells_for_bbox(float(la.min()), float(lo.min()), float(la.max()), float(lo.max())):
         feats = context.cell(key)
         if feats is None or not len(feats):
@@ -190,7 +214,8 @@ def place(frame, box, context, left_hand=False, mph=True, face=STYLE_VIENNA):
         for fid, row in _cell_rows(feats, frame, context.urban, context.widths, left_hand, mph, face).items():
             if fid not in seen:         # (a line is whole in every cell it crosses)
                 seen.add(fid)
-                rows.append(row)
+                fid_rows.append((fid, row))
+    rows = _demote_ring_ranks(fid_rows)
     arrays = _arrays(rows, box)
     if arrays is None:
         return np.zeros((0, 9))
