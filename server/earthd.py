@@ -89,6 +89,7 @@ import cdae  # noqa: E402
 import colormatch as colormatchmod  # noqa: E402
 import credits as creditsmod  # noqa: E402
 import secrossings  # noqa: E402
+import refugeislands  # noqa: E402
 import covermap as covermapmod  # noqa: E402
 import areas as areasmod  # noqa: E402
 import surface as surfacemod  # noqa: E402
@@ -2440,6 +2441,8 @@ class Server:
         nkeys = roadsmod.cells_of_tile(anchor.frame, tx, ty, blockworker.SIGNALS_MARGIN_M)
         sign_nodes = secrossings.read(self.mapdata, anchor.frame, nkeys) if str(self.country(anchor) or "").upper() == "SE" \
             else None
+        refuge = refugeislands.read(self.mapdata, anchor.frame, nkeys)
+        refuge_land = refugeislands.read_land(self.mapdata, anchor.frame, nkeys)
         clearance = [] if self.buildings else None     # (build_tile's RoadClearance, PR #629: the powerlines' too)
         roadside_jobs = []
         drives = []
@@ -2469,7 +2472,8 @@ class Server:
                                      terrain_paint=self.surface is not None, cover_out=cover, marks=marks,
                                      roads_out=near_roads, roadside_jobs=roadside_jobs, signals=furnituremod.signals_for(self.mapdata, anchor.frame, nkeys),
                                      nodes=sign_nodes, clearance_out=clearance,
-                                     development=developmentmod.for_tile(self.mapdata, anchor.frame, tx, ty), towns=towns)
+                                     development=developmentmod.for_tile(self.mapdata, anchor.frame, tx, ty),
+                                     towns=towns, refuge=refuge, refuge_land=refuge_land)
         # (railway and tram tracks on the ground)
         chunks += railsmod.tile_chunks(anchor.frame, tx, ty, cells, self.country(anchor), urban)
         if self.airports is not None:   # runway markings, drawn by the road mesh like the lane lines
@@ -5392,8 +5396,9 @@ class Connection:
         files.request(want)
 
     async def route(self, msg):
-        """{"id", "lat0", "lon0", "lat1", "lon1", "download"?} -> route_result {"id", "points": [[lat, lon]...], "dist",
-        "dur", "elev": [[dist_m, elev_m], ...]?, "error"?}. Also (re)starts this route's corridor prefetch
+        """{"id", "lat0", "lon0", "lat1", "lon1", "download"?, "exclude"?} -> route_result {"id", "points": [[lat, lon]...], "dist",
+        "dur", "elev": [[dist_m, elev_m], ...]?, "error"?}. exclude is one avoidance (routing.EXCLUDES: motorway, toll,
+        ferry), planned by Valhalla; absent, the fastest OSRM route. Also (re)starts this route's corridor prefetch
         (route_download, routeahead.py; download: "off", "ahead" (ROUTE_AHEAD_MAX_M, the default) or "route" (the
         whole route, up to ROUTE_WHOLE_MAX_M))."""
         self.route_dl_version += 1
@@ -5402,7 +5407,7 @@ class Connection:
         try:
             r = await asyncio.get_running_loop().run_in_executor(
                 self.s.ui_pool, routingmod.plan, float(msg["lat0"]), float(msg["lon0"]), float(msg["lat1"]),
-                float(msg["lon1"]), self.s.net, msg.get("bearing"))
+                float(msg["lon1"]), self.s.net, msg.get("bearing"), msg.get("exclude"))
             out.update(r)
         except Exception as e:          # offline, no route, rate limited: the mod falls back to steering
             out["error"] = f"{type(e).__name__}: {e}"[:200]
@@ -5412,8 +5417,10 @@ class Connection:
                     self.s.ui_pool, self._route_elevation, out["points"])
             except Exception as e:
                 log.debug("route elevation: %s: %s", type(e).__name__, e)
-        log.info("route %d (%s, %s -> %s, %s): %d points, %.1f km%s", int(msg.get("id") or 0), msg.get("lat0"),
-                 msg.get("lon0"), msg.get("lat1"), msg.get("lon1"), len(out["points"]), out["dist"] / 1000,
+        log.info("route %d (%s, %s -> %s, %s%s): %d points, %.1f km%s", int(msg.get("id") or 0), msg.get("lat0"),
+                 msg.get("lon0"), msg.get("lat1"), msg.get("lon1"),
+                 (", avoid " + routingmod.exclude_class(msg.get("exclude"))) if routingmod.exclude_class(msg.get("exclude")) else "",
+                 len(out["points"]), out["dist"] / 1000,
                  (" (" + out["error"] + ")") if "error" in out else "")
         self.send(out)
         self.route_points = out["points"] if "error" not in out else []
@@ -6499,6 +6506,14 @@ class Connection:
             self.signs = signstream.Tracker()
         elif kind == "highway_signs":           # the settings page's switch: no sign tiles built while it is off
             self.signs_on = bool(msg.get("on", True))
+        elif kind == "speed_sections":          # average sections and point cameras (speedcams)
+            try:
+                import speedcams
+                rows, cameras = speedcams.section_rows(), speedcams.fixed_rows()
+            except Exception:
+                log.warning("speed sections unavailable", exc_info=True)
+                rows, cameras = [], []
+            self.send({"type": "speed_sections", "rows": rows, "cameras": cameras})
         elif kind == "direction_signs":         # the settings page's switch: the sign tiles again, with or without
             if self.s.set_dirs(msg.get("on")):
                 self.signs.refresh()
@@ -7407,7 +7422,7 @@ class Connection:
             source = getattr(self.s.mapdata, "highway_signs", None)
             if source is not None and self.signs_on:      # (after the roads: signs only for road tiles sent)
                 self.signs.on_pose(self, aid, *self.focus, asyncio.get_running_loop(), self.s.build_signs_tile,
-                                   ready, version=source.tags.known())
+                                   ready, version=source.tags.known(), vel=self.vel)
         if self.turbine_geo and aid == self.active and detail:
             anchor = self.s.anchors.get(aid)
             if anchor is not None:

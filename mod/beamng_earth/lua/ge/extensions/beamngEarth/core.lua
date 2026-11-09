@@ -623,6 +623,7 @@ local function finishRebase()
   require('beamngEarth/turbinestream').reanchor(rb.newAnchor)
   nightlights.transform(xf)
   gasstations.transform(xf)
+  pcall(require('beamngEarth/speedtraps').transform)
   -- road geotiles: their content placed exactly into the new anchor (its rows' modules after their transforms above),
   -- the skins moved and lifted until the new anchor's come (roads.lua M.replace)
   roads.replace(rb.newAnchor, msg.anchorId)
@@ -1083,6 +1084,8 @@ local function onMessage(msg)
     sea.clear()
     trees.clear()
     ambience.clear()
+    pcall(require('beamngEarth/speedsections').reset)
+    pcall(require('beamngEarth/speedtraps').reset)
     M._trafficvisuals.session(nil, false)
     setStatus('Disconnected from companion server: ' .. tostring(msg.error))
   elseif t == 'runtime_profiler_pong' then
@@ -1135,6 +1138,7 @@ local function onMessage(msg)
     net.send({ type = 'gas_stations', on = true })
     -- the highway signs' switch (settings highwaySigns): no sign tiles built while it is off
     net.send({ type = 'highway_signs', on = roads.signsEnabled })
+    net.send({ type = 'speed_sections' })   -- average-speed sections: the timer in speedsections.lua
     -- the direction signs' switch (settings directionSigns, off by default): sign tiles with boards only while it is on
     do
       local settings = rawget(_G, 'beamngEarth_settings')
@@ -1189,6 +1193,9 @@ local function onMessage(msg)
       st.autoTeleportDone = true
       startTeleport()
     end
+  elseif t == 'speed_sections' then
+    require('beamngEarth/speedsections').onRows(msg.rows)
+    require('beamngEarth/speedtraps').onCameras(msg.cameras)
   elseif t == 'status' then
     st.status = tostring(msg.text)
     -- the server's network note ("Offline - using cached data" / "Degraded: ..."): the banner shows it
@@ -2621,6 +2628,10 @@ local function onUpdate(dtReal, dtSim)
     -- came after it had passed (Brasov, Sinaia 2026-10-15: the car drove bare ground)
     roads.update(gov, st.anchorId, st.player, M.viewAway(), st.anchor)
     gasstations.update(gov)
+    if st.player and not st.paused then
+      pcall(require('beamngEarth/speedsections').update, st.player, dtSim or dtReal)
+      if st.anchor then pcall(require('beamngEarth/speedtraps').update, st.player, st.anchor) end
+    end
     t = mark('roads', t)
     farfield.update(gov, (gov.w1 or dtReal * 1000) / 1000, st.cam, st.player)
     t = mark('far', t)
@@ -2801,6 +2812,8 @@ local function onClientEndMission()
   pcall(require('beamngEarth/spaceclouds').clear)
   pcall(require('beamngEarth/globe').clear)
   pcall(gasstations.reset)
+  pcall(require('beamngEarth/speedsections').park)
+  pcall(require('beamngEarth/speedtraps').park)
   pcall(farcars.reset)
   pcall(mpsession.reset)
   gps.reset()
@@ -3123,8 +3136,9 @@ function M.requestGeocode(id, q, lat, lon, full)
 end
 function M.requestRoute(id, lat0, lon0, lat1, lon1, bearing)
   if not net.isConnected() then return false end
+  local avoid = settings.get('routeAvoid')
   net.send({ type = 'route', id = id, lat0 = lat0, lon0 = lon0, lat1 = lat1, lon1 = lon1, bearing = bearing,
-    download = settings.get('routeDownload') })
+    download = settings.get('routeDownload'), exclude = (avoid ~= 'off' and avoid or nil) })
   return true
 end
 function M.takeRoute(id)
