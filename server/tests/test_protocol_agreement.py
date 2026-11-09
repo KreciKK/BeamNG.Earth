@@ -166,6 +166,8 @@ MOD_TO_SERVER = {
     # highway signs (signstream.py; additive): the settings page's switch, sent after every hello and when changed
     "highway_signs": {"on": F(bool)},
     "direction_signs": {"on": F(bool)},
+    # average-speed sections and point cameras (speedcams.py; additive): asked after every hello
+    "speed_sections": {},
     # the settings page's graphics (Connection.set_graphics; additive): sent after every hello and on a change; the
     # far field's terrain detail (K x lodScale), the tree tiles' and far buildings' reach, the ground photo's px
     "graphics": {"lodScale": F(NUM, OPT), "treeScale": F(NUM, OPT), "buildingScale": F(NUM, OPT),
@@ -247,6 +249,9 @@ SERVER_TO_MOD = {
     "route_result": {"id": F(int), "points": F(list), "dist": F(NUM), "dur": F(NUM), "error": F(str, OPT),
                       "elev": F((list, dict), OPT)},  # OSRM; elev: the map's profile (routing.resample, dem.sample)
     "route_download": {"total": F(int), "done": F(int), "active": F(bool)},
+    # average-speed sections (D-51a/b pairs) and fixed cameras with bearing+limit (speedcams.py; speedsections /
+    # speedtraps.lua): asked by speed_sections after hello
+    "speed_sections": {"rows": F(list), "cameras": F(list)},
     # the blocks built already round the player (follow.preferReady takes one instead of its own target)
     "terrain_ready_set": {"anchorId": F(int), "centres": F(list)},  # routeahead.py: the route's corridor
     "update": {"current": F(str), "latest": F(str), "url": F(str),   # a newer version on GitHub (updates.py)
@@ -443,6 +448,7 @@ EXERCISED_ELSEWHERE = {"far_retex", "roads_tile", "roads_drop",   # roads: needs
                        "addons", "addon_detail", "addon_status",     # the Add-ons page: only when it asks (online;
                        "addon_apply", "addon_added",                 # test_addons, test_addons.lua)
                        "geocode_result", "route_result",             # only when the map / GPS asks
+                       "speed_sections",                             # only when the mod asks after hello (speedcams)
                        "cache_map_result",                           # only when the map's cache view asks
                        "area_plan_result", "areas",                  # saved areas: a Server with a Cache (test_areas)
                        "route_download",                             # only when the GPS plans a route (routeahead.py)
