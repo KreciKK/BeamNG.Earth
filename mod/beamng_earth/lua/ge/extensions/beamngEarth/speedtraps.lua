@@ -165,6 +165,37 @@ end
 
 function M.count() return #cameras end
 
+-- Stock freeroam/career only show the speeding toast in those game states. BeamMP
+-- (and anything else) is not freeroam, so the trap fires and the light may blink
+-- with no message. We always say it ourselves; freeroam may also say its own.
+function M.onSpeedTrapTriggered(data, playerSpeed, overSpeed)
+  if not data or not data.speedLimit then return end
+  local vid = be and be.getPlayerVehicleID and be:getPlayerVehicleID(0)
+  if data.subjectID ~= nil and vid ~= nil and data.subjectID ~= vid then return end
+  local limit = tonumber(data.speedLimit) or 0
+  local speed = tonumber(playerSpeed) or 0
+  local plate = ''
+  if core_vehicles and core_vehicles.getVehicleLicenseText then
+    local veh = getPlayerVehicle and getPlayerVehicle(0)
+    if veh then
+      local ok, text = pcall(core_vehicles.getVehicleLicenseText, veh)
+      if ok and text then plate = tostring(text) end
+    end
+  end
+  local text
+  if plate ~= '' then
+    text = string.format('Speed camera: %s — %d km/h (limit %d)',
+      plate, math.floor(speed * 3.6 + 0.5), math.floor(limit * 3.6 + 0.5))
+  else
+    text = string.format('Speed camera: %d km/h (limit %d)',
+      math.floor(speed * 3.6 + 0.5), math.floor(limit * 3.6 + 0.5))
+  end
+  if ui_message then pcall(ui_message, text, 8, 'beamngEarthCam') end
+  if Engine and Engine.Audio and Engine.Audio.playOnce then
+    pcall(Engine.Audio.playOnce, 'AudioGui', 'event:>UI>Main>Photo')
+  end
+end
+
 -- Drop a live trap so the next update() rebuilds it with the current spawn().
 function M.respawn(osmId)
   local id = tonumber(osmId) or osmId

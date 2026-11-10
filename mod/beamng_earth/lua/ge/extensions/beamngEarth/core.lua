@@ -3328,6 +3328,10 @@ function M.setDirectionSigns(on)
 end
 
 M.onUpdate = onUpdate
+-- Point speed cameras: stock freeroam ignores the trap outside freeroam (BeamMP). Ours always toasts.
+M.onSpeedTrapTriggered = function(data, playerSpeed, overSpeed)
+  pcall(require('beamngEarth/speedtraps').onSpeedTrapTriggered, data, playerSpeed, overSpeed)
+end
 -- the stock gas stations' POI list (gameplay/rawPois.lua): ours, so freeroam/gasStations.lua offers "Refuel" at them
 M.onGetRawPoiListForLevel = function(levelIdentifier, elements) gasstations.pois(levelIdentifier, elements) end
 M.onPreRender = onPreRender
