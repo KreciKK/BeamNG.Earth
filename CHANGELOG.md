@@ -2,6 +2,27 @@
 
 What changed in each release of BeamNG.Earth, newest first.
 
+## 1.9.1 beta (2026-11-10)
+
+Works with BeamNG.drive 0.40.5.
+
+### New
+- **Polish place-name and built-up signs** (E-17a / E-18a / D-42 / D-43): mapped OSM city-limit nodes plus synthetic
+  boards where a road crosses a settlement boundary; adjacent localities stack enter + leave on one pole like Street
+  View. Retroreflective green/white sheeting and letters (reflect headlights, no night-time self-glow).
+- **Hectometre posts** and **speed cameras** on Polish roads (with the other highway-sign stream).
+- **GPS route avoids**: motorways, tolls or ferries via Valhalla when OSRM rejects `exclude=`.
+- **Roundabout islands**: smoother rings and a cobble truck apron; pedestrian refuge islands at crossings.
+- **Speed-camera toast outside freeroam**: BeamMP and other non-freeroam modes now show the speeding message when a
+  trap fires (stock freeroam only announced it in freeroam/career).
+
+### Fixed
+- **City-limit sign in the middle of the road**: a board no longer falls back onto the carriageway snap point between
+  the two roadside posts; stacked neighbour boards keep a verge centre.
+- **Duplicate begin boards** at one entrance (e.g. Szpitalna Wieś): same name and travel within ~80 m collapse to one.
+- **Highway signs late at speed**: two sign-tile workers, ahead-of-car build order, and sign meshes spawn before
+  buildings so city limits appear before you pass them.
+
 ## 1.9.0 beta (2026-11-09)
 
 > **Join the TGForever Discord, [discord.gg/tgf](https://discord.gg/tgf), to chat, get help, report bugs or help
