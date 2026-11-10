@@ -377,6 +377,30 @@ def _side_point(at, travel, half, side):
     return at + right * side * (half + OUT_M)
 
 
+def _roadside_centres(at, travel, half, osm_xy=None):
+    """Candidate board positions: preferred verge, then the opposite — never the carriageway.
+
+    Falling back to the snap point `at` planted boards in the lane between the two real roadside
+    posts (Street View / in-game reports). An OSM node is only reused when it already sits clearly
+    off the centreline.
+    """
+    t = np.asarray(travel, float)
+    n = float(np.linalg.norm(t))
+    t = t / max(n, 1e-9)
+    at = np.asarray(at, float)[:2]
+    out = [_side_point(at, t, half, 1.0), _side_point(at, t, half, -1.0)]
+    if osm_xy is not None:
+        q = np.asarray(osm_xy, float)[:2]
+        if float(np.hypot(*(q - at).T)) > max(half * 0.6, 2.0):
+            out.append(q)
+    return out
+
+
+def _on_carriageway(centre, at, half):
+    """True when centre is still on/near the pavement rather than the verge."""
+    return float(np.hypot(*(np.asarray(centre, float)[:2] - np.asarray(at, float)[:2]).T)) < half + 0.5
+
+
 def _facing_travel(spec, travel, side):
     """Unit travel the sign face greets (traffic approaching the panel)."""
     t = np.asarray(travel, float)
@@ -431,11 +455,8 @@ def _place_mapped(frame, rows, mapped, elev, box, decks):
         for face_kind, along in _faces_for(kind):
             travel = tangent * along
             travel = travel / max(float(np.linalg.norm(travel)), 1e-9)
-            centre2 = _side_point(at, travel, half, 1.0)
-            # Prefer roadside; if that falls outside the tile, try the OSM point itself.
-            candidates = [centre2, at, q]
             placed = False
-            for centre in candidates:
+            for centre in _roadside_centres(at, travel, half, osm_xy=q):
                 if not (x0 <= centre[0] < x1 and y0 <= centre[1] < y1):
                     continue
                 if exitsigns._on_deck(centre, decks, CLEAR_DECK_M):
@@ -449,6 +470,7 @@ def _place_mapped(frame, rows, mapped, elev, box, decks):
                     source="osm",
                     osm_id=rec.get("osm_id"),
                     at=[float(at[0]), float(at[1])],
+                    half=float(half),
                 ))
                 placed = True
                 break
@@ -495,9 +517,7 @@ def _place_synthetic(frame, rows, rings, elev, box, decks, mapped_place):
                 faces = ((PLACE_BEGIN, travel), (PLACE_END, -travel)) if entering else (
                     (PLACE_END, travel), (PLACE_BEGIN, -travel))
                 for face_kind, trav in faces:
-                    centre2 = _side_point(at, trav, half, 1.0)
-                    candidates = [centre2, at]
-                    for centre in candidates:
+                    for centre in _roadside_centres(at, trav, half):
                         if not (x0 <= centre[0] < x1 and y0 <= centre[1] < y1):
                             continue
                         if exitsigns._on_deck(centre, decks, CLEAR_DECK_M):
@@ -511,6 +531,7 @@ def _place_synthetic(frame, rows, rings, elev, box, decks, mapped_place):
                             source="synthetic",
                             at=[float(at[0]), float(at[1])],
                             area=float(area),
+                            half=float(half),
                         ))
                         break
     return out
@@ -609,9 +630,26 @@ def _pair_place_signs(signs):
         if partner is not None:
             stacked = dict(s)
             stacked["leave_name"] = place[partner].get("name") or ""
-            if s.get("source") != "osm" and place[partner].get("source") == "osm":
-                stacked["centre"] = list(place[partner]["centre"])
-                stacked["at"] = list(place[partner].get("at", stacked.get("at", stacked["centre"][:2])))
+            # Prefer a verge that is already off the carriageway; never adopt a mid-lane centre
+            # from an OSM partner that fell back onto the snap point.
+            partner_s = place[partner]
+            half = float(s.get("half") or partner_s.get("half") or 3.5)
+            at = np.asarray(s.get("at") or partner_s.get("at") or s["centre"][:2], float)[:2]
+            picks = []
+            for cand in (s, partner_s):
+                c = np.asarray(cand["centre"][:2], float)
+                if not _on_carriageway(c, at, half):
+                    picks.append((0 if cand.get("source") == "osm" else 1, c, cand))
+            if picks:
+                picks.sort(key=lambda p: p[0])
+                _, c, src = picks[0]
+                stacked["centre"] = [float(c[0]), float(c[1]), float(src["centre"][2])]
+                stacked["at"] = [float(at[0]), float(at[1])]
+            else:
+                verge = _side_point(at, stacked["travel"], half, 1.0)
+                stacked["centre"] = [float(verge[0]), float(verge[1]), float(s["centre"][2])]
+                stacked["at"] = [float(at[0]), float(at[1])]
+            stacked["half"] = half
             out.append(stacked)
             used.add(i)
             used.add(partner)

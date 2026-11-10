@@ -176,6 +176,32 @@ class PlaceTest(unittest.TestCase):
         self.assertTrue(any(s["name"] == "Small" for s in signs))
         self.assertFalse(any(s["name"] == "Big" for s in signs))
 
+    def test_never_plants_on_carriageway(self):
+        """Roadside only — falling back to the snap point used to put a board in the lane."""
+        rows = [("a", SPEC, line(200.0), 4.0)]
+        mapped = [dict(lat=0.0, lon=100.0, osm_id=9, kind=citylimits.PLACE_BOTH,
+                       name="Radom", dir_deg=float("nan"))]
+        signs = citylimits.place(Frame, rows, mapped, [], elev, BOX)
+        self.assertTrue(signs)
+        for s in signs:
+            at = np.asarray(s["at"][:2], float)
+            c = np.asarray(s["centre"][:2], float)
+            self.assertGreaterEqual(
+                float(np.hypot(*(c - at).T)), 4.0 + citylimits.OUT_M - 0.05,
+                f"sign on carriageway: centre={c} at={at}")
+
+    def test_pair_rejects_midlane_centre(self):
+        """Stacked neighbour must not inherit an OSM partner planted on the centreline."""
+        begin = dict(centre=[100.0, 5.8, 4.0], travel=[1.0, 0.0], kind=citylimits.PLACE_BEGIN,
+                     name="Sztum", source="synthetic", at=[100.0, 0.0], half=4.0, area=10.0)
+        end = dict(centre=[100.0, 0.0, 4.0], travel=[1.0, 0.0], kind=citylimits.PLACE_END,
+                   name="Czernin", source="osm", at=[100.0, 0.0], half=4.0)
+        got = citylimits._pair_place_signs([begin, end])
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0].get("leave_name"), "Czernin")
+        c = np.asarray(got[0]["centre"][:2], float)
+        self.assertGreater(abs(c[1]), 4.0, c)
+
     def test_same_name_begin_not_duplicated(self):
         """Parallel ways / double rings must not plant two E-17a for the same place."""
         # Two centre-lines ~50 m apart, both crossing the same settlement edge.
