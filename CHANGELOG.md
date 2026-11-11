@@ -2,6 +2,31 @@
 
 What changed in each release of BeamNG.Earth, newest first.
 
+## 1.9.2 beta (2026-11-11)
+
+Works with BeamNG.drive 0.40.5.
+
+### Fixed
+- **World generation stalling while GitHub is down**: during GitHub's outage on the night of 1.9.0, world gen could
+  hang (players saw it stop at 15 %) while each server process waited on our railway, sign and regional data files
+  hosted there. The copies already on your disk are now used straight away and refreshed in the background. In our
+  tests, a first road tile with GitHub down went from 41 s to 6 s. A first run with nothing downloaded yet can still
+  wait a little.
+- **Distant scenery failing to load for good** after a crash, power loss or a full disk: a cached colour-match,
+  shadow-removal or map-tag file left cut short or empty failed the distant tiles over it every time it was read; it
+  should now be rebuilt. Since 1.9.0 this was by far the most frequent error in the performance reports.
+- **Regular short freezes while driving through towns**: whenever the AI road network was updated around you (every few
+  seconds at speed), the game's traffic-light system searched every object in the world for signal heads; it now checks
+  only ours. In our tests that step went from up to ~150 ms to about 5 ms, and in a 100 mph drive through Manhattan
+  the 22-25 hitches over 50 ms it caused per 5 minutes no longer showed up. This should make driving noticeably smoother.
+- **Server stalls of a few seconds after teleports**: old files are now deleted in the background instead of on the
+  server's main thread, which could hold every message to the game on a busy disk.
+
+### Behind the scenes
+- Error reports (only if you share performance data) now say which part of the server an error came from, so damaged
+  files like the above can be found sooner.
+- Release builds ride out short GitHub download outages.
+
 ## 1.9.1 beta (2026-11-10)
 
 Works with BeamNG.drive 0.40.5.
