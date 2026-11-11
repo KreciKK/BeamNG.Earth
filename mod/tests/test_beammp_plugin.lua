@@ -171,4 +171,56 @@ G.WEATHER = 'tornado'
 T.check(G.config().weather == nil, 'an unknown weather: the real one')
 G.TIME, G.TIME_SPEED, G.WEATHER = 'real', 0, 'real'
 
+-- speedcam → Discord: our base64 round-trip, webhook URL check, fold + curl command
+local all = {}
+for c = 0, 255 do all[#all + 1] = string.char(c) end
+local raw = string.rep(table.concat(all), 2)
+local enc = G.b64(raw)
+T.check(not enc:find('Z', 1, true) and G.b64d(enc) == raw, 'b64d: round-trip, no Z')
+T.check(G.b64d('!!!!') == nil and G.b64d(enc:gsub('-', 'Z', 1)) == nil, 'b64d: junk / standard Z refused')
+
+T.check(G.speedcamWebhookOk('https://discord.com/api/webhooks/123456789012345678/AbCdEfGhIjKlMnOpQrStUvWxYz_12-34'),
+  'speedcamWebhookOk: discord.com')
+T.check(G.speedcamWebhookOk('https://discordapp.com/api/webhooks/1/token.with~chars'), 'speedcamWebhookOk: discordapp.com')
+T.check(not G.speedcamWebhookOk('') and not G.speedcamWebhookOk('https://evil.example/hooks/1/x')
+  and not G.speedcamWebhookOk('https://discord.com/api/webhooks/1/x y'), 'speedcamWebhookOk: rejects bad URLs')
+
+local body = G.speedcamContent('Alice', { speed = 87.4, limit = 50, plate = 'WZ 12345', place = 'Warszawa' })
+T.check(body:find('Alice', 1, true) and body:find('087', 1, true) and body:find('050', 1, true)
+  and body:find('WZ 12345', 1, true), 'speedcamContent: ' .. body)
+local pj = G.speedcamPayloadJson('say "hi"')
+T.check(pj:find('"content":"say \\"hi\\""', 1, true) and pj:find('"username":"BeamNG.Earth"', 1, true),
+  'speedcamPayloadJson escapes quotes')
+T.check(G.speedcamCmd('https://discord.com/api/webhooks/1/t', 'a.png', 'a.json', false)
+  :match('^curl .*payload_json=<a%.json.*files%[0%]=@a%.png.*>/dev/null 2>&1 &$') ~= nil,
+  'speedcamCmd: Linux background')
+T.check(G.speedcamCmd('https://discord.com/api/webhooks/1/t', 'a.png', 'a.json', true)
+  :match('^start "" /b curl .* >NUL 2>&1$') ~= nil, 'speedcamCmd: Windows background')
+
+-- fold: header + chunks → PNG; cooldown; size / signature checks
+G.sc = { up = {}, last = {} }
+local png = '\137PNG\r\n\26\n' .. string.rep('x', 100)
+local id, n = 'u1', math.ceil(#png / G.SPEEDCAM_CHUNK)
+T.check(G.speedcamFold(G.sc, 1, { v = 1, t = 'h', id = id, n = n, size = #png, speed = 90, limit = 50,
+  plate = 'AB', place = 'X' }, 10, 'p') == nil and G.sc.up[1] ~= nil, 'speedcamFold: header kept')
+local done = nil
+for i = 0, n - 1 do
+  local from = i * G.SPEEDCAM_CHUNK + 1
+  done = G.speedcamFold(G.sc, 1, { v = 1, t = 'c', id = id, i = i, n = n,
+    d = G.b64(png:sub(from, from + G.SPEEDCAM_CHUNK - 1)) }, 10, 'p')
+end
+T.check(done and done.bytes == png and done.meta.speed == 90 and done.name == 'p' and G.sc.up[1] == nil,
+  'speedcamFold: assembles PNG')
+T.check(G.speedcamFold(G.sc, 1, { v = 1, t = 'h', id = 'u2', n = 1, size = 8, speed = 1, limit = 1 }, 11, 'p') == nil
+  and G.sc.up[1] == nil, 'speedcamFold: cooldown blocks next header')
+G.sc.last[1] = 0
+local bad = '\137PNG\r\n\26\n' .. 'short'
+G.speedcamFold(G.sc, 1, { v = 1, t = 'h', id = 'u3', n = 1, size = 99, speed = 1, limit = 1 }, 20, 'p')
+T.check(G.speedcamFold(G.sc, 1, { v = 1, t = 'c', id = 'u3', i = 0, n = 1, d = G.b64(bad) }, 20, 'p') == nil,
+  'speedcamFold: size mismatch refused')
+
+-- client encoder matches the server's (speedcam_mp.lua)
+local sm = dofile(dir .. '/../beamng_earth/lua/ge/extensions/beamngEarth/speedcam_mp.lua')
+T.check(sm.b64(raw) == G.b64(raw) and G.b64d(sm.b64(raw)) == raw, 'speedcam_mp.b64 matches G.b64')
+
 T.done('test_beammp_plugin')

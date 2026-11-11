@@ -8,6 +8,11 @@ local M = {}
 M.SPAWN_M = 160
 M.DROP_M = 320
 M.LANE_M = 8          -- the device stands on the shoulder; the box sits this far into the lanes
+M.EYE_H = 2.6         -- photo eye height above ground at the device (housing, not a bird's-eye mast)
+M.EYE_IN_M = 0.6      -- nudge from the OSM point toward the lanes so the eye clears the pole mesh
+M.LOOK_AHEAD = 22     -- fallback along-road aim when the car pose is unknown
+M.LOOK_LANE = 3.5     -- metres into the carriageway from the eye (fallback only)
+M.LOOK_PAST = 3       -- aim a few metres past the car so it sits mid-frame, not on the bottom edge
 M.SCAN_S = 0.25
 
 local cameras = {}
@@ -77,13 +82,20 @@ end
 
 local function spawn(cam, anchor, hintZ)
   if not createObject or not quatFromDir then return nil end
-  local x, y, z0 = anchor:geodeticToWorld(cam.lat, cam.lon, 0)
-  local tx, ty = M.travel(anchor, x, y, cam.dir)
+  -- OSM device on the shoulder (photo eye). Trigger/light are moved into the lanes below.
+  local dx, dy, z0 = anchor:geodeticToWorld(cam.lat, cam.lon, 0)
+  local tx, ty = M.travel(anchor, dx, dy, cam.dir)
   local len = math.sqrt(tx * tx + ty * ty)
   if len < 1e-6 then return nil end
   tx, ty = tx / len, ty / len
+  local gzDev = groundZ(dx, dy, hintZ or z0)
+  -- nudge toward the carriageway (left of travel) so the eye is not inside the pole mesh
+  local eyeX = dx - ty * M.EYE_IN_M
+  local eyeY = dy + tx * M.EYE_IN_M
+  local eyeZ = gzDev + M.EYE_H
   -- left of travel, over the carriageway (right-hand traffic, the camera is on the right shoulder)
-  x, y = x - ty * M.LANE_M, y + tx * M.LANE_M
+  local x = dx - ty * M.LANE_M
+  local y = dy + tx * M.LANE_M
   local gz = groundZ(x, y, hintZ or z0)
   local q = quatFromDir(vec3(tx, ty, 0), vec3(0, 0, 1))
   local suffix = tostring(cam.id)
@@ -129,7 +141,109 @@ local function spawn(cam, anchor, hintZ)
     scenetree.MissionGroup:addObject(light)
     scenetree.MissionGroup:addObject(trig)
   end
-  return { trig = trig:getID(), light = light:getID(), name = trigName, x = x, y = y, z = gz + 1.5, limit = cam.limit }
+  return {
+    id = cam.id, trig = trig:getID(), light = light:getID(), name = trigName,
+    x = x, y = y, z = gz + 1.5, limit = cam.limit,
+    -- photo POV: device on the shoulder, not the mid-lane trigger/light
+    eyeX = eyeX, eyeY = eyeY, eyeZ = eyeZ, tx = tx, ty = ty,
+  }
+end
+
+-- Live trap for a gameplay_speedTraps triggerName ("bneCamT" .. id), or nil.
+function M.findLive(triggerName)
+  if type(triggerName) ~= 'string' or triggerName == '' then return nil end
+  for _, e in pairs(live) do
+    if e.name == triggerName then return e end
+  end
+  return nil
+end
+
+-- Refresh eyeX/Y/Z + travel from the OSM camera row (keeps photo POV in sync with EYE_* constants).
+local function ensureEye(e, anchor)
+  if not e or not anchor or not e.id then return e end
+  local cam
+  for _, c in ipairs(cameras) do if c.id == e.id then cam = c break end end
+  if not cam then return e end
+  local dx, dy, z0 = anchor:geodeticToWorld(cam.lat, cam.lon, 0)
+  local tx, ty = M.travel(anchor, dx, dy, cam.dir)
+  local len = math.sqrt(tx * tx + ty * ty)
+  if len < 1e-6 then return e end
+  tx, ty = tx / len, ty / len
+  local gzDev = groundZ(dx, dy, e.z or z0)
+  e.eyeX = dx - ty * M.EYE_IN_M
+  e.eyeY = dy + tx * M.EYE_IN_M
+  e.eyeZ = gzDev + M.EYE_H
+  e.tx, e.ty = tx, ty
+  return e
+end
+
+-- World eye for the photo: OSM device on the shoulder (not the mid-lane flash light).
+function M.eyeOf(e)
+  if not e then return nil end
+  if finite(e.eyeX) and finite(e.eyeY) and finite(e.eyeZ) then
+    return { x = e.eyeX, y = e.eyeY, z = e.eyeZ }
+  end
+  -- Legacy live entries / fallback: reconstruct shoulder from the lane trigger
+  -- (trigger = device + left-of-travel * LANE_M).
+  if finite(e.x) and finite(e.y) and finite(e.tx) and finite(e.ty) then
+    return {
+      x = e.x + e.ty * M.LANE_M - e.ty * M.EYE_IN_M,
+      y = e.y - e.tx * M.LANE_M + e.tx * M.EYE_IN_M,
+      z = (e.z or 0) - 1.5 + M.EYE_H,
+    }
+  end
+  return nil
+end
+
+-- Look-at for the photo: the car, from the shoulder eye (shallow enough), a few metres past
+-- it along travel so the body sits mid-frame. Aiming far down the road left the car clipped.
+function M.lookTarget(e, veh)
+  local eye = M.eyeOf(e)
+  if not eye then return nil end
+  local tx, ty = e.tx, e.ty
+  if veh and finite(veh.x) and finite(veh.y) and finite(tx) and finite(ty) then
+    local along = (veh.x - eye.x) * tx + (veh.y - eye.y) * ty
+    local sign = along >= 0 and 1 or -1
+    return {
+      x = veh.x + tx * sign * M.LOOK_PAST,
+      y = veh.y + ty * sign * M.LOOK_PAST,
+      z = (finite(veh.z) and (veh.z + 0.45)) or (eye.z - 1.0),
+    }
+  end
+  if not finite(tx) or not finite(ty) then return nil end
+  return {
+    x = eye.x + tx * M.LOOK_AHEAD - ty * M.LOOK_LANE,
+    y = eye.y + ty * M.LOOK_AHEAD + tx * M.LOOK_LANE,
+    z = eye.z - 1.0,
+  }
+end
+
+-- Resolve a camera eye from the trigger event when findLive misses (reload / race).
+function M.eyeFromData(data)
+  local e = data and M.findLive(data.triggerName) or nil
+  local eye = M.eyeOf(e)
+  if eye then return eye end
+  if not data or not scenetree then return nil end
+  -- Last resort: from the trigger, step back to the right of travel (shoulder).
+  if data.triggerID and scenetree.findObjectById then
+    local trig = scenetree.findObjectById(data.triggerID)
+    if trig and trig.getPosition and quat then
+      local p = trig:getPosition()
+      local q = quat(trig:getRotation())
+      local forward = q * vec3(0, 1, 0)
+      local right = q * vec3(1, 0, 0)
+      if p and forward and right then
+        -- RHT: device on the right shoulder → from lane centre go +right by ~LANE_M
+        return {
+          x = p.x + right.x * M.LANE_M,
+          y = p.y + right.y * M.LANE_M,
+          z = p.z - 1.5 + M.EYE_H,
+        }
+      end
+      if p then return { x = p.x, y = p.y, z = p.z - 1.5 + M.EYE_H } end
+    end
+  end
+  return nil
 end
 
 -- The origin moved: the traps were in the old frame. The next scan places the nearby ones again.
@@ -144,6 +258,7 @@ end
 function M.reset()
   M.transform()
   cameras = {}
+  pcall(function() require('beamngEarth/mandat').reset() end)
 end
 
 function M.update(pl, anchor)
@@ -165,9 +280,9 @@ end
 
 function M.count() return #cameras end
 
--- Stock freeroam/career only show the speeding toast in those game states. BeamMP
--- (and anything else) is not freeroam, so the trap fires and the light may blink
--- with no message. We always say it ourselves; freeroam may also say its own.
+-- Stock freeroam/career only toast in those game states. BeamMP (and anything else)
+-- is not freeroam, so the trap fires with no message. We show a Polish "Mandat karny"
+-- (mandat.lua) instead of a toast; freeroam may also say its own.
 function M.onSpeedTrapTriggered(data, playerSpeed, overSpeed)
   if not data or not data.speedLimit then return end
   local vid = be and be.getPlayerVehicleID and be:getPlayerVehicleID(0)
@@ -182,15 +297,52 @@ function M.onSpeedTrapTriggered(data, playerSpeed, overSpeed)
       if ok and text then plate = tostring(text) end
     end
   end
-  local text
-  if plate ~= '' then
-    text = string.format('Speed camera: %s — %d km/h (limit %d)',
-      plate, math.floor(speed * 3.6 + 0.5), math.floor(limit * 3.6 + 0.5))
-  else
-    text = string.format('Speed camera: %d km/h (limit %d)',
-      math.floor(speed * 3.6 + 0.5), math.floor(limit * 3.6 + 0.5))
+  local place = ''
+  local okLoc, loc = pcall(function() return require('beamngEarth/statusbar').location() end)
+  if okLoc and type(loc) == 'table' then
+    place = tostring(loc.place ~= '' and loc.place or loc.street or '')
   end
-  if ui_message then pcall(ui_message, text, 8, 'beamngEarthCam') end
+  pcall(require('beamngEarth/mandat').show, {
+    source = 'fotoradar',
+    speed = speed * 3.6,
+    limit = limit * 3.6,
+    plate = plate,
+    place = place,
+  })
+  -- Low-res offscreen still from the device on the shoulder (not the mid-lane trigger).
+  local liveE = M.findLive(data.triggerName)
+  local core = rawget(_G, 'beamngEarth_core')
+  local st = core and core._state and core._state()
+  if liveE and st and st.anchor then ensureEye(liveE, st.anchor) end
+  local eye = M.eyeOf(liveE) or M.eyeFromData(data)
+  local vehPos
+  local veh = getPlayerVehicle and getPlayerVehicle(0)
+  if veh and veh.getPosition then
+    local p = veh:getPosition()
+    if p then vehPos = { x = p.x, y = p.y, z = p.z } end
+  end
+  -- Along the road into the lane (shallow), not straight down at the car in the box.
+  local target = (liveE and M.lookTarget(liveE, vehPos)) or vehPos
+  if target and vehPos and not target.z then target.z = vehPos.z + 0.5 end
+  local camshot = require('beamngEarth/camshot')
+  if eye and target then
+    local speedKmh = math.floor(speed * 3.6 + 0.5)
+    local limitKmh = math.floor(limit * 3.6 + 0.5)
+    local tag = string.format('%s_%dkmh', tostring(data.triggerName or 'cam'), speedKmh)
+    local meta = {
+      speed = speedKmh, limit = limitKmh, plate = plate, place = place,
+      time = os.date('%H:%M:%S'), date = os.date('%d.%m.%Y'),
+      photo = tostring(data.triggerName or 'CAM'):gsub('^bneCamT', ''):sub(1, 6),
+    }
+    local ok, err = pcall(camshot.fromTrap, data, eye, target, tag, meta)
+    if not ok and log then
+      log('W', 'beamngEarth', 'camshot fromTrap: ' .. tostring(err))
+    end
+  elseif log then
+    log('W', 'beamngEarth', string.format(
+      'camshot skipped (eye=%s target=%s trigger=%s)',
+      eye and 'ok' or 'nil', target and 'ok' or 'nil', tostring(data.triggerName)))
+  end
   if Engine and Engine.Audio and Engine.Audio.playOnce then
     pcall(Engine.Audio.playOnce, 'AudioGui', 'event:>UI>Main>Photo')
   end

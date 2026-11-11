@@ -123,11 +123,14 @@ export async function onLoad() {
   // an older version's map button, if this UI session still has one
   try { await lua.extensions.ui_pause_actions.unregisterModButton("beamngEarth-map") } catch (e) { /* none */ }
   await registerMapRoute()
+  // Polish speed-camera / OPP "Mandat karny" overlay (mandatOverlay.js → MandatOverlay.vue on document.body)
+  try { (await import("./mandatOverlay.js")).start() } catch (e) { console.error("BeamNG.Earth: mandat overlay failed", e) }
   // the BeamNG.Earth servers tab in BeamMP's server browser (earthServers.js); its failure costs nothing else
   try { (await import("./earthServers.js")).start() } catch (e) { console.error("BeamNG.Earth: servers tab failed", e) }
 }
 
 export async function onUnload() {
+  try { (await import("./mandatOverlay.js")).stop() } catch (e) { /* never started */ }
   try { (await import("./earthServers.js")).stop() } catch (e) { /* never started */ }
   await lua.extensions.ui_pause_actions.unregisterModTab(TAB_ID)       // (its buttons with it)
   try {

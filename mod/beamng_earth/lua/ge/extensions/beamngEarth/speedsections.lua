@@ -101,6 +101,7 @@ end
 
 function M.reset()
   sections, prev, active, cool = {}, nil, nil, {}
+  pcall(function() require('beamngEarth/mandat').reset() end)
 end
 
 local function say(text)
@@ -119,18 +120,31 @@ local function announceEnd(sec, seconds)
   local avg = M.averageKmh(sec.length, seconds)
   if not avg then return end
   local over = M.overLimit(avg, sec.limit)
+  if over and sec.limit then
+    local place = ''
+    local okLoc, loc = pcall(function() return require('beamngEarth/statusbar').location() end)
+    if okLoc and type(loc) == 'table' then
+      place = tostring(loc.place ~= '' and loc.place or loc.street or '')
+    end
+    pcall(require('beamngEarth/mandat').show, {
+      source = 'opp',
+      speed = avg,
+      limit = sec.limit,
+      place = place,
+    })
+    if Engine and Engine.Audio and Engine.Audio.playOnce then
+      pcall(Engine.Audio.playOnce, 'AudioGui', M.SOUND)
+    end
+    return
+  end
   local text
   if sec.limit then
-    text = string.format('%s %d km/h (limit %d)',
-      over and 'Speed camera: average' or 'Average speed',
+    text = string.format('Average speed %d km/h (limit %d)',
       math.floor(avg + 0.5), math.floor(sec.limit + 0.5))
   else
     text = string.format('Average speed %d km/h', math.floor(avg + 0.5))
   end
   say(text)
-  if over and Engine and Engine.Audio and Engine.Audio.playOnce then
-    pcall(Engine.Audio.playOnce, 'AudioGui', M.SOUND)
-  end
 end
 
 local function cooled(key, now)

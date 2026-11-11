@@ -9,7 +9,8 @@
 --     without a car: the world map's arrows), to everyone each TICK_MS and at once when an anchor changes;
 --   - bngeGoTo { lat, lon }: a player who joins is sent to the others (the longest-joined player's place);
 --   - bngeConfig { time, weather }: the server's settings (below), to a player at their first pose.
---   - bngeShare: shared world generation v2 (below): this server keeps and serves its players' world building.
+--   - bngeShare: shared world generation v2 (below): this server keeps and serves its players' world building;
+--   - bngeSpeedcam: a stamped speed-camera PNG from a client, posted to G.SPEEDCAM_WEBHOOK (Discord) when set.
 -- (v1 shared world building, its bngeConfig sharePort and bngePeers, is commented out below: off since 2026-10-23.)
 -- Positions stay latitude / longitude here: no coordinates are converted on the server. Nothing of BeamMP itself is
 -- changed: only its events (MP.RegisterEvent, MP.TriggerClientEvent).
@@ -35,6 +36,10 @@ G.TIME_SPEED = 0
 -- Weather for everyone: 'real' (the live weather where each player is, the default), or one of 'clear', 'cloudy',
 -- 'rain', 'storm', 'snow', 'fog'.
 G.WEATHER = 'real'
+-- Discord webhook for speed-camera photos (empty = off). Players on BeamMP send the stamped PNG to this
+-- plugin (bngeSpeedcam); it posts the image here. The URL stays on the server — never in the client mod.
+-- Example: 'https://discord.com/api/webhooks/<id>/<token>'
+G.SPEEDCAM_WEBHOOK = ''
 -- ===================================================================================================================
 
 G.LIST_URL = 'https://earth.tgforever.net/announce'   -- (the list service, native/serverlist)
@@ -233,6 +238,25 @@ function G.b64len(s)
   if type(s) ~= 'string' or #s % 4 ~= 0 or s:find('[^A-Ya-z0-9+/=%-]') then return nil end
   local pad = s:sub(-2) == '==' and 2 or (s:sub(-1) == '=' and 1 or 0)
   return #s / 4 * 3 - pad
+end
+
+-- Pure: decode our base64 ("-" for "Z"); nil when it is not ours.
+function G.b64d(s)
+  if not G.b64len(s) or s:find('Z', 1, true) then return nil end
+  local out = {}
+  for i = 1, #s, 4 do
+    local b1, b2, b3, b4 = s:byte(i, i + 3)
+    local a, b = B64I[b1], B64I[b2]
+    if not a or not b then return nil end
+    local c = (b3 ~= 61) and B64I[b3] or 0
+    local d = (b4 ~= 61) and B64I[b4] or 0
+    if (b3 ~= 61 and not B64I[b3]) or (b4 ~= 61 and not B64I[b4]) then return nil end
+    local v = a * 262144 + b * 4096 + c * 64 + d
+    out[#out + 1] = string.char(math.floor(v / 65536) % 256)
+    if b3 ~= 61 then out[#out + 1] = string.char(math.floor(v / 256) % 256) end
+    if b4 ~= 61 then out[#out + 1] = string.char(v % 256) end
+  end
+  return table.concat(out)
 end
 
 local function hex(s, n) return type(s) == 'string' and #s == n and not s:find('[^0-9a-f]') end
@@ -607,6 +631,106 @@ function G.encodeAnnouncement(ann, encode)
   return (text:gsub('("modstotalsize"%s*:%s*)%-?%d+', function(k) return k .. string.format('%d', size) end, 1))
 end
 
+-- ===== Speed-camera Discord webhook (bngeSpeedcam) ==============================================================
+-- Clients on BeamMP send a stamped PNG as our base64 chunks; this plugin posts it to G.SPEEDCAM_WEBHOOK (curl:
+-- BeamMP's server Lua has no HTTP POST). Empty webhook: drops. Cap and cooldown keep a flood off Discord.
+G.SPEEDCAM_CHUNK = 24576          -- raw bytes per chunk (same as SHARE_CHUNK)
+G.SPEEDCAM_MAX = 1024 * 1024      -- PNG size at most
+G.SPEEDCAM_COOLDOWN_S = 3
+G.SPEEDCAM_PENDING_S = 30
+G.sc = { up = {}, last = {} }     -- pid -> in-flight upload; pid -> last completed clock
+
+-- Pure: a Discord webhook URL we will POST to (never a free-form URL).
+function G.speedcamWebhookOk(url)
+  if type(url) ~= 'string' or #url < 40 or #url > 300 or url:find('[%s%?&#\"\']') then return false end
+  return url:match('^https://discord%.com/api/webhooks/%d+/[%w%-%._~]+$') ~= nil
+      or url:match('^https://discordapp%.com/api/webhooks/%d+/[%w%-%._~]+$') ~= nil
+end
+
+-- Pure: Discord message body for one photo.
+function G.speedcamContent(name, meta)
+  meta = meta or {}
+  local speed = math.floor(math.abs(tonumber(meta.speed) or 0) + 0.5)
+  local limit = math.floor(math.abs(tonumber(meta.limit) or 0) + 0.5)
+  local plate = tostring(meta.plate or ''):gsub('%s+', ' '):sub(1, 24)
+  local place = tostring(meta.place or ''):gsub('%s+', ' '):sub(1, 48)
+  if plate == '' then plate = '—' end
+  if place == '' then place = '—' end
+  return string.format('**Speed camera** — %s · **%03d** km/h (limit %03d) · %s · %s',
+    tostring(name or '?'):sub(1, 32), math.min(speed, 999), math.min(limit, 999), plate, place)
+end
+
+-- Pure: payload_json file body (content escaped for JSON).
+function G.speedcamPayloadJson(content)
+  local esc = tostring(content or ''):gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\r', ''):gsub('\n', '\\n')
+  return '{"username":"BeamNG.Earth","content":"' .. esc .. '"}'
+end
+
+-- Pure: background curl that posts the PNG + payload_json to the webhook (files, never on the command line).
+function G.speedcamCmd(url, pngFile, jsonFile, windows)
+  local curl = string.format(
+    'curl -s -m 30 -F "payload_json=<%s" -F "files[0]=@%s;filename=speedcam.png;type=image/png" "%s"',
+    jsonFile, pngFile, url)
+  if windows then return 'start "" /b ' .. curl .. ' >NUL 2>&1' end
+  return curl .. ' >/dev/null 2>&1 &'
+end
+
+-- Pure: fold one client message into pending state. Returns { bytes, meta } when the PNG is complete, else nil.
+-- state: G.sc. msg: decoded table. now: G.clock.
+function G.speedcamFold(state, pid, msg, now, name)
+  if type(state) ~= 'table' or type(msg) ~= 'table' or tonumber(msg.v) ~= 1 then return nil end
+  now = tonumber(now) or 0
+  -- drop stale uploads
+  for p, u in pairs(state.up or {}) do
+    if now - (u.t or 0) > G.SPEEDCAM_PENDING_S then state.up[p] = nil end
+  end
+  local t = tostring(msg.t or '')
+  if t == 'h' then
+    local id, n, size = tostring(msg.id or ''), tonumber(msg.n), tonumber(msg.size)
+    if id == '' or #id > 40 or not n or n < 1 or n > 64 or not size or size < 8 or size > G.SPEEDCAM_MAX then
+      return nil
+    end
+    local last = (state.last or {})[pid] or -math.huge
+    if now - last < G.SPEEDCAM_COOLDOWN_S then return nil end
+    state.up[pid] = {
+      id = id, n = n, size = size, parts = {}, got = 0, t = now, name = name,
+      speed = tonumber(msg.speed), limit = tonumber(msg.limit),
+      plate = type(msg.plate) == 'string' and msg.plate:sub(1, 24) or '',
+      place = type(msg.place) == 'string' and msg.place:sub(1, 48) or '',
+    }
+    return nil
+  end
+  if t ~= 'c' then return nil end
+  local u = state.up and state.up[pid]
+  if not u or tostring(msg.id) ~= u.id then return nil end
+  local i, n = tonumber(msg.i), tonumber(msg.n)
+  if not i or not n or i < 0 or i >= n or n ~= u.n or type(msg.d) ~= 'string' then return nil end
+  local rawLen = G.b64len(msg.d)
+  if not rawLen or rawLen > G.SPEEDCAM_CHUNK or (i < n - 1 and rawLen ~= G.SPEEDCAM_CHUNK) then return nil end
+  if u.parts[i] then return nil end
+  local chunk = G.b64d(msg.d)
+  if not chunk or #chunk ~= rawLen then return nil end
+  u.parts[i] = chunk
+  u.got = u.got + 1
+  u.t = now
+  if u.got < u.n then return nil end
+  local bytes = {}
+  for k = 0, u.n - 1 do
+    if type(u.parts[k]) ~= 'string' then state.up[pid] = nil; return nil end
+    bytes[#bytes + 1] = u.parts[k]
+  end
+  local png = table.concat(bytes)
+  state.up[pid] = nil
+  if #png ~= u.size or #png > G.SPEEDCAM_MAX or png:sub(1, 8) ~= '\137PNG\r\n\26\n' then return nil end
+  state.last = state.last or {}
+  state.last[pid] = now
+  return {
+    bytes = png,
+    meta = { speed = u.speed, limit = u.limit, plate = u.plate, place = u.place },
+    name = u.name or name,
+  }
+end
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- BeamMP wiring (absent in the offline tests)
 if MP and MP.RegisterEvent then
@@ -636,7 +760,11 @@ if MP and MP.RegisterEvent then
     end
   end
 
-  function BNGE_onLeave(pid) G.onLeave(pid); G.shareLeave(pid) end
+  function BNGE_onLeave(pid)
+    G.onLeave(pid)
+    G.shareLeave(pid)
+    if G.sc and G.sc.up then G.sc.up[pid] = nil end
+  end
 
   -- shared world generation v2: the file layer (BeamMP's FS and Lua's io), the events, the paced sends
   local function base(f) return tostring(f):match('([^/\\]+)$') end
@@ -792,6 +920,39 @@ if MP and MP.RegisterEvent then
   MP.RegisterEvent('bngeShare', 'BNGE_share')
   MP.RegisterEvent('BNGE_shareDrain', 'BNGE_shareDrain')
   MP.CreateEventTimer('BNGE_shareDrain', G.SHARE_DRAIN_MS)
+
+  -- speed-camera photo → Discord webhook (G.SPEEDCAM_WEBHOOK)
+  function BNGE_onSpeedcam(pid, data)
+    if not G.speedcamWebhookOk(G.SPEEDCAM_WEBHOOK) then return end
+    local ok, msg = pcall(Util.JsonDecode, data)
+    if not ok or type(msg) ~= 'table' then return end
+    local name = MP.GetPlayerName(pid)
+    local done = G.speedcamFold(G.sc, pid, msg, G.clock, name)
+    if not done then return end
+    local pngPath = string.format('bnge_speedcam_%d.png', pid)
+    local jsonPath = string.format('bnge_speedcam_%d.json', pid)
+    local out = io.open(pngPath, 'wb')
+    if not out then
+      print('[BeamNG.Earth] speedcam: could not write ' .. pngPath)
+      return
+    end
+    out:write(done.bytes)
+    out:close()
+    local j = io.open(jsonPath, 'wb')
+    if not j then
+      print('[BeamNG.Earth] speedcam: could not write ' .. jsonPath)
+      return
+    end
+    j:write(G.speedcamPayloadJson(G.speedcamContent(done.name or name, done.meta)))
+    j:close()
+    os.execute(G.speedcamCmd(G.SPEEDCAM_WEBHOOK, pngPath, jsonPath, package.config:sub(1, 1) == '\\'))
+    print(string.format('[BeamNG.Earth] speedcam from %s → Discord (%d bytes)',
+      tostring(done.name or name), #done.bytes))
+  end
+  MP.RegisterEvent('bngeSpeedcam', 'BNGE_onSpeedcam')
+  if G.speedcamWebhookOk(G.SPEEDCAM_WEBHOOK) then
+    print('[BeamNG.Earth] speedcam Discord webhook enabled')
+  end
   local cfg = G.config()
   local timeText = 'real'
   if cfg.time then
