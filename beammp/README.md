@@ -38,16 +38,6 @@ with the normal BeamMP launcher.
 
    Never share your AuthKey (the plugin only checks that one is set; it never sends it anywhere).
 
-   **Speed-camera Discord photos** (optional, stays across plugin updates — put it in `ServerConfig.toml`, not in
-   `main.lua`):
-
-   ```toml
-   SpeedcamWebhook = "https://discord.com/api/webhooks/<id>/<token>"
-   ```
-
-   When a player is caught speeding, the client sends the stamped photo to this plugin, which posts it to that
-   webhook. Leave the key out (or empty) to disable.
-
    **Which list your server is on:**
    - `Private = false` with your AuthKey: on the **BeamNG.Earth** server list, the "BeamNG.Earth" tab in BeamMP's
      server browser, which only players with BeamNG.Earth see. The plugin keeps it off BeamMP's own public list while
@@ -59,12 +49,16 @@ with the normal BeamMP launcher.
 
    The server lists itself once a minute with `curl` (built into Linux and Windows 10 and later).
 
-   **Time and weather** (near the top of `Resources/Server/BeamNGEarth/main.lua`, then restart the server):
+   **Time, weather and speedcam Discord** (near the top of `Resources/Server/BeamNGEarth/main.lua`, then restart;
+   or rewrite those lines from your start script the same way as `G.LISTED` / `G.TIME`):
    - `G.TIME = 'real'` (each player's real local time where they are) or a fixed local time such as `'20:30'`, with
      `G.TIME_SPEED` 0 (it stays), 1 (it runs at real speed) or more (60: an hour of the day every real minute). Every
      player sees the same time.
    - `G.WEATHER = 'real'` (the live weather where each player is) or `'clear'`, `'cloudy'`, `'rain'`, `'storm'`,
      `'snow'`, `'fog'` for everyone.
+   - `G.SPEEDCAM_WEBHOOK = ''` (empty = off), or a Discord webhook URL so speeding photos are posted there. Do not put
+     this in `ServerConfig.toml` — BeamMP rewrites that file on every start. Use `|` as the `sed` delimiter (the URL
+     contains `/`).
    - A player who set Sky or Weather to Manual in BeamNG.Earth's settings keeps their own.
 4. **Open the port** if players come over the internet: forward the server's port, **TCP and UDP**, in your router to
    the server's computer (and allow it in its firewall). Players on the same network need nothing.

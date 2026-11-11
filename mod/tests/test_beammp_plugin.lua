@@ -122,15 +122,6 @@ local leak = false
 for _, v in pairs(full) do if tostring(v):find('hunter2', 1, true) then leak = true end end
 T.check(not leak, 'announcement: never the password')
 T.check(G.readConfig('Password = ""').pass == false, 'readConfig: no password')
-local wh = 'https://discord.com/api/webhooks/123456789012345678/AbCdEfGhIjKlMnOpQrStUvWxYz_12-34'
-T.check(G.readConfig('SpeedcamWebhook = "' .. wh .. '" # keep across updates\n').speedcamWebhook == wh,
-  'readConfig: SpeedcamWebhook from ServerConfig.toml')
-G.SPEEDCAM_WEBHOOK = ''
-G.applyServerConfig({ speedcamWebhook = wh })
-T.check(G.SPEEDCAM_WEBHOOK == wh, 'applyServerConfig: sets SPEEDCAM_WEBHOOK')
-G.applyServerConfig({ speedcamWebhook = '' })
-T.check(G.SPEEDCAM_WEBHOOK == wh, 'applyServerConfig: empty string leaves the previous value')
-G.SPEEDCAM_WEBHOOK = ''
 T.check(G.listable({ private = false, authKey = key }), 'listable: public with a key')
 T.check(not G.listable({ private = true, authKey = key }), 'listable: Private = true: direct connect only')
 T.check(not G.listable({ private = false, authKey = zeros }), 'listable: no key: direct connect only')

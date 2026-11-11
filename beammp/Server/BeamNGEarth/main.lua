@@ -36,9 +36,9 @@ G.TIME_SPEED = 0
 -- Weather for everyone: 'real' (the live weather where each player is, the default), or one of 'clear', 'cloudy',
 -- 'rain', 'storm', 'snow', 'fog'.
 G.WEATHER = 'real'
--- Discord webhook for speed-camera photos (empty = off). Prefer ServerConfig.toml so a plugin reinstall
--- does not wipe it:  SpeedcamWebhook = "https://discord.com/api/webhooks/<id>/<token>"
--- This default is only a fallback when the config key is missing.
+-- Discord webhook for speed-camera photos (empty = off). Same as G.TIME / G.WEATHER: edit here, or have
+-- your start script rewrite this line (BeamMP rewrites ServerConfig.toml and would wipe a custom key there).
+-- Example: 'https://discord.com/api/webhooks/<id>/<token>'
 G.SPEEDCAM_WEBHOOK = ''
 -- ===================================================================================================================
 
@@ -563,19 +563,10 @@ function G.readConfig(text)
       elseif k == 'Port' then cfg.port = tonumber(v)
       elseif k == 'MaxPlayers' then cfg.maxPlayers = tonumber(v)
       elseif k == 'Private' then cfg.private = v == 'true'
-      elseif k == 'AuthKey' and str then cfg.authKey = str
-      elseif k == 'SpeedcamWebhook' and str then cfg.speedcamWebhook = str end
+      elseif k == 'AuthKey' and str then cfg.authKey = str end
     end
   end
   return cfg
-end
-
--- Pure: apply local overrides from ServerConfig (survives Resources/Server reinstalls).
-function G.applyServerConfig(cfg)
-  if type(cfg) ~= 'table' then return end
-  if type(cfg.speedcamWebhook) == 'string' and cfg.speedcamWebhook ~= '' then
-    G.SPEEDCAM_WEBHOOK = cfg.speedcamWebhook
-  end
 end
 
 -- Pure: is this a real BeamMP key (keymaster.beammp.com's form, not the placeholder of zeros)?
@@ -959,9 +950,8 @@ if MP and MP.RegisterEvent then
       tostring(done.name or name), #done.bytes))
   end
   MP.RegisterEvent('bngeSpeedcam', 'BNGE_onSpeedcam')
-  G.applyServerConfig(serverConfig())
   if G.speedcamWebhookOk(G.SPEEDCAM_WEBHOOK) then
-    print('[BeamNG.Earth] speedcam Discord webhook enabled (ServerConfig.toml)')
+    print('[BeamNG.Earth] speedcam Discord webhook enabled')
   end
   local cfg = G.config()
   local timeText = 'real'
