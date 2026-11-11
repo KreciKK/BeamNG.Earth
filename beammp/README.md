@@ -38,6 +38,16 @@ with the normal BeamMP launcher.
 
    Never share your AuthKey (the plugin only checks that one is set; it never sends it anywhere).
 
+   **Speed-camera Discord photos** (optional, stays across plugin updates — put it in `ServerConfig.toml`, not in
+   `main.lua`):
+
+   ```toml
+   SpeedcamWebhook = "https://discord.com/api/webhooks/<id>/<token>"
+   ```
+
+   When a player is caught speeding, the client sends the stamped photo to this plugin, which posts it to that
+   webhook. Leave the key out (or empty) to disable.
+
    **Which list your server is on:**
    - `Private = false` with your AuthKey: on the **BeamNG.Earth** server list, the "BeamNG.Earth" tab in BeamMP's
      server browser, which only players with BeamNG.Earth see. The plugin keeps it off BeamMP's own public list while
