@@ -100,7 +100,6 @@
         <span class="side-text">Odcinek C — dla osoby ukaranej</span>
       </div>
     </div>
-    <button class="accept" type="button" @click="dismiss">Przyjmuję</button>
     </div>
   </div>
 </template>
@@ -157,26 +156,25 @@ onUnmounted(() => {
   inset: 0;
   z-index: 11000;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  justify-content: flex-end;
   pointer-events: none;
-  padding: 1.5em;
+  padding: 1.25em 1.5em 2.25em;
   box-sizing: border-box;
 }
 .mandat-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(8, 10, 14, 0.35);
-  pointer-events: auto;
+  background: transparent;
+  pointer-events: none;
 }
 .mandat-wrap {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.55em;
-  width: min(52em, 96vw);
-  max-height: 92vh;
+  align-items: stretch;
+  width: min(28em, 42vw);
+  max-height: min(70vh, 36em);
   pointer-events: auto;
 }
 .mandat {
@@ -184,14 +182,14 @@ onUnmounted(() => {
   display: flex;
   flex-direction: row;
   width: 100%;
-  max-height: calc(92vh - 2.5em);
+  max-height: min(70vh, 36em);
   background: #f7f5f0;
   color: #111;
   border: 1px solid #222;
-  box-shadow: 0 0.6em 2em rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0.35em 1.2em rgba(0, 0, 0, 0.4);
   font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-  font-size: 0.85em;
-  line-height: 1.25;
+  font-size: 0.62em;
+  line-height: 1.2;
   overflow: hidden;
 }
 .mandat-main {
@@ -378,24 +376,12 @@ onUnmounted(() => {
   color: #555;
 }
 .date { font-size: 0.85em; margin-bottom: 0.4em; }
-.accept {
-  border: 1px solid #222;
-  background: #e8e4dc;
-  color: #111;
-  font: inherit;
-  font-size: 0.95em;
-  font-weight: 700;
-  padding: 0.35em 1.1em;
-  cursor: pointer;
-  pointer-events: auto;
-  box-shadow: 0 0.25em 0.8em rgba(0, 0, 0, 0.35);
-}
-.accept:hover { background: #ddd7cc; }
 
-@media (max-width: 700px) {
-  .mandat { font-size: 0.72em; }
+@media (max-width: 900px) {
+  .mandat-wrap { width: min(24em, 88vw); }
+  .mandat { font-size: 0.58em; }
   .footer { grid-template-columns: 1fr 1fr; }
-  .footer .cell { min-height: 3.5em; }
+  .footer .cell { min-height: 3.2em; }
   .stamp-box { display: none; }
 }
 </style>
