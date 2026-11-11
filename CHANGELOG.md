@@ -2,6 +2,16 @@
 
 What changed in each release of BeamNG.Earth, newest first.
 
+## 1.9.3 beta (2026-11-11)
+
+Works with BeamNG.drive 0.40.5.
+
+### New
+- **Polish speed-camera photos**: when a trap fires, a TraffiStar-style stamped PNG is captured and a compact mandat
+  ticket shows bottom-right (no accept button).
+- **BeamMP Discord upload**: on a BeamMP server the photo is relayed through the server plugin to a Discord webhook.
+  Set `SpeedcamWebhook` in `ServerConfig.toml` so the URL survives plugin reinstalls (empty = off).
+
 ## 1.9.2 beta (2026-11-11)
 
 Works with BeamNG.drive 0.40.5.
