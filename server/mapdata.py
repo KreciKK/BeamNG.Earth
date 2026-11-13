@@ -67,6 +67,7 @@ import mapgeom
 import maprasters
 import netfetch
 import overture
+import polandlod1
 import rangeread
 import revisit
 import staging
@@ -106,6 +107,7 @@ VERSION = 2                     # pipeline version: bump when what a cell's laye
 # (and PR #471's validated highway lane counts, current-way geometry evidence; merged before roads 8 was released)
 # roads 9: OpenStreetMap's busways appended (osmtags.busway_features). Overture emits none, as with raceways.
 LAYER_VERSIONS = {"roads": 9}
+LOD1_LAYERS = ("buildings", "building_parts")   # what polandlod1 (BNE_PL_LOD1) replaces in cells wholly in Poland
 # (LidarBC's measured canopy heights, maprasters.bc_canopy, are opt-in: BNE_BC_CANOPY=1 fills cells built after it;
 # no canopy version bump, which would fetch every player's canopy cells again)
                                 # (2: clipped polygon pieces `own`ed by their cell, exact cell edges,
@@ -151,6 +153,7 @@ CREDIT_LINES = {
                       "processed by ESA WorldCover consortium",
     "meta-wri-chm": "Canopy height: Meta & WRI",
     "lidarbc-chm": "Canopy height: LidarBC (OGL-BC), Meta & WRI",
+    polandlod1.PROVENANCE_ID: polandlod1.ATTRIBUTION,
 }
 THEME_OF = {name: spec["theme"] for name, spec in overture.LAYERS.items()}
 
@@ -262,6 +265,7 @@ class MapData:
                  threads=overture.DUCKDB_THREADS):
         self.cache_dir = cache_dir
         self.fetcher = fetcher if fetcher is not None else netfetch.Fetcher()
+        polandlod1.configure(cache_dir, self.fetcher)       # (opt-in: BNE_PL_LOD1; its files are fetched on demand)
         self.release = release
         self.raw_dir = os.path.join(cache_dir, "mapdata", "raw")
         self.overture = overture.Reader(self.raw_dir, self.fetcher, release, threads)
@@ -336,11 +340,14 @@ class MapData:
     def versions(self):
         rails = getattr(self, "rail_tags", None)
         lanes = getattr(self, "lane_tags", None)
-        return {"pipeline": VERSION, "overture": self.release, "worldcover": maprasters.WORLDCOVER_RELEASE,
-                "canopy": maprasters.CHM_RELEASE, "rails": rails.known() if rails is not None else None,
-                "lanes": lanes.known() if lanes is not None else None,
-                "gradesep": (gradesep.VERSION, gradesep.MODE) if gradesep.TUNNELS else None,
-                "osmfuel": OSM_POI_VERSION if OSM_FUEL else False}
+        v = {"pipeline": VERSION, "overture": self.release, "worldcover": maprasters.WORLDCOVER_RELEASE,
+             "canopy": maprasters.CHM_RELEASE, "rails": rails.known() if rails is not None else None,
+             "lanes": lanes.known() if lanes is not None else None,
+             "gradesep": (gradesep.VERSION, gradesep.MODE) if gradesep.TUNNELS else None,
+             "osmfuel": OSM_POI_VERSION if OSM_FUEL else False}
+        if polandlod1.enabled():                # (Poland's official footprints, BNE_PL_LOD1: keyed only while on)
+            v["pl_lod1"] = polandlod1.signature()
+        return v
 
     def bundle_versions(self):
         """Offline source identity for prepared road plans, including cached but not yet opened shards.
@@ -366,6 +373,8 @@ class MapData:
 
     def path(self, key, layer):
         source, release = _source(layer, self.release)
+        if layer in LOD1_LAYERS and polandlod1.covers(key):
+            release = f"{release}+pllod1.{polandlod1.VERSION}"     # (Poland's official footprints: their own files)
         lv = LAYER_VERSIONS.get(layer)
         name = layer if lv is None else f"{layer}.{lv}"
         return os.path.join(self.cache_dir, "mapdata", f"v{VERSION}", source, release, name,
@@ -446,7 +455,13 @@ class MapData:
         if layer in VECTOR_LAYERS:
             # the roads' OpenStreetMap tags are read alongside Overture's (each half a fresh cell's wait)
             osm = self._osm_pool().submit(self._osm_cell, key, kind) if layer == "roads" else None
-            feats, sources = self.overture.query(layer, key, kind)
+            lod1 = polandlod1.query(key, kind) if layer == "buildings" else None   # None: not covered (off, outside Poland, no tiles)
+            if lod1 is not None:
+                feats, sources = lod1
+            elif layer == "building_parts" and polandlod1.covers(key):
+                feats, sources = overture.empty(layer), {}      # (parts of Overture buildings that are not drawn)
+            else:
+                feats, sources = self.overture.query(layer, key, kind)
             if osm is not None:
                 feats = self._osm(feats, osm.result(),
                                   lambda need: self.osmtags.highway_geometry(key.bounds(), kind, need))
@@ -457,7 +472,10 @@ class MapData:
                 # lies (the pieces of all cells make the whole polygon), not only in the bbox-centre cell
                 feats.own |= feats.clipped
             arrays = _layer_arrays(feats)
-            prov = overture.sources_provenance(THEME_OF[layer], self.release, sources) if len(feats) else None
+            if lod1 is not None:
+                prov = polandlod1.provenance(sources) if len(feats) else None
+            else:
+                prov = overture.sources_provenance(THEME_OF[layer], self.release, sources) if len(feats) else None
         elif layer == "landcover":
             r = self.rasters.worldcover(key, kind)
             arrays = _layer_arrays(r)
