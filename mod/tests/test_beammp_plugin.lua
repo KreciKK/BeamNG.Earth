@@ -222,5 +222,11 @@ T.check(G.speedcamFold(G.sc, 1, { v = 1, t = 'c', id = 'u3', i = 0, n = 1, d = G
 -- client encoder matches the server's (speedcam_mp.lua)
 local sm = dofile(dir .. '/../beamng_earth/lua/ge/extensions/beamngEarth/speedcam_mp.lua')
 T.check(sm.b64(raw) == G.b64(raw) and G.b64d(sm.b64(raw)) == raw, 'speedcam_mp.b64 matches G.b64')
+T.check(sm.enabled() == true, 'speedcam_mp.enabled by default')
+package.loaded['beamngEarth/settings'] = {
+  get = function(k) if k == 'speedcamPhotos' then return false end end,
+}
+T.check(sm.enabled() == false and sm.send('x.png', {}) == false, 'speedcamPhotos off blocks Discord send')
+package.loaded['beamngEarth/settings'] = nil
 
 T.done('test_beammp_plugin')

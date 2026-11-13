@@ -148,10 +148,11 @@ local function onDone(success, filepath, cb, meta)
           tostring(M.lastAbs or filepath), tostring(meta.speed), tostring(meta.limit),
           tostring(meta.plate or ''), tostring(meta.place or '')))
     end
-    -- On BeamMP: send the stamped PNG to the server plugin → Discord webhook (G.SPEEDCAM_WEBHOOK).
+    -- On BeamMP: Discord webhook via the server plugin (same speedcamPhotos kill switch as capture).
     pcall(function()
       local mp = require('beamngEarth/beammp')
-      if mp.inSession() then require('beamngEarth/speedcam_mp').send(filepath, meta) end
+      local sc = require('beamngEarth/speedcam_mp')
+      if mp.inSession() and sc.enabled() then sc.send(filepath, meta) end
     end)
   else
     note('capture failed for ' .. tostring(filepath))
@@ -159,10 +160,22 @@ local function onDone(success, filepath, cb, meta)
   if cb then pcall(cb, success and filepath or nil) end
 end
 
+-- settings.speedcamPhotos (default on): kill switch for RenderView capture / Discord upload.
+function M.photosEnabled()
+  local ok, s = pcall(require, 'beamngEarth/settings')
+  if ok and s and s.get and s.get('speedcamPhotos') == false then return false end
+  return true
+end
+
 -- from/to: {x,y,z}. tag: filename fragment. meta: stamp fields. cb(path|nil).
 function M.capture(from, to, tag, meta, cb)
   if type(meta) == 'function' then cb, meta = meta, nil end
   meta = meta or {}
+  if not M.photosEnabled() then
+    note('disabled (speedcamPhotos off)')
+    if cb then pcall(cb, nil) end
+    return false
+  end
   if M.BUSY then
     note('busy')
     if cb then pcall(cb, nil) end

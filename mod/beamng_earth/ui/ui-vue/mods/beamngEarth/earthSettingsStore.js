@@ -86,6 +86,7 @@ export const settingsSchema = [
     items: [
       { id: "beammpOnLaunch", type: "bool", default: true, name: "Start BeamMP with BeamNG.Earth", desc: "The BeamNG.Earth app starts BeamMP (multiplayer) with the game, so BeamNG.Earth servers show in BeamMP's server browser (main menu, More, BeamMP, the BeamNG.Earth category). Takes effect at the next start of the app." },
       { id: "beammpLauncher", type: "path", what: "beammp", name: "BeamMP launcher", placeholder: "Path to BeamMP-Launcher (the program or its folder)", desc: "The BeamMP launcher the app starts: the one you chose, else the one it found. Change... opens your system's file window (it may open behind the game: Alt+Tab to it); or type or paste its path below and press Use. Used from the next start of the app." },
+      { id: "speedcamPhotos", type: "bool", default: true, name: "Speed-camera photos", desc: "When a speed camera fires, take a low-res photo from the device, stamp it, and on BeamMP post it to the server's Discord webhook (if the server has one). Turn off to skip both the offscreen capture and the Discord upload (useful if world audio freezes on BeamMP after 1.9.3). The mandat ticket and the camera click still play." },
     ],
   },
   {

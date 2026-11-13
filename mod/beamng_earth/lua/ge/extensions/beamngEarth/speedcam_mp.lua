@@ -73,8 +73,19 @@ local function fire(payload)
   return true
 end
 
+-- Same kill switch as camshot (settings.speedcamPhotos): off → no Discord upload either.
+function M.enabled()
+  local ok, s = pcall(require, 'beamngEarth/settings')
+  if ok and s and s.get and s.get('speedcamPhotos') == false then return false end
+  return true
+end
+
 -- path: VFS or absolute PNG. meta: { speed, limit, plate, place, ... }.
 function M.send(path, meta)
+  if not M.enabled() then
+    note('disabled (speedcamPhotos off)')
+    return false
+  end
   if not inSession() then return false end
   if not rawget(_G, 'TriggerServerEvent') then return false end
   meta = meta or {}

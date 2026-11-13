@@ -23,6 +23,22 @@ T.check(opts.screenshotDelay == camshot.DELAY, 'short delay')
 T.check(camshot.renderOptions({ x = 0, y = 0, z = 0 }, { x = 0, y = 0.1, z = 0 }, path) == nil, 'bad look → nil options')
 T.check(type(camshot.status().dir) == 'string', 'status()')
 
+T.check(camshot.photosEnabled() == true, 'photos on by default (no settings / default)')
+
+-- kill switch: settings.speedcamPhotos = false skips RenderView entirely
+do
+  package.loaded['beamngEarth/settings'] = {
+    get = function(k)
+      if k == 'speedcamPhotos' then return false end
+      return nil
+    end,
+  }
+  T.check(camshot.photosEnabled() == false, 'photosEnabled respects speedcamPhotos off')
+  T.check(camshot.capture({ x = 0, y = 0, z = 2 }, { x = 0, y = 10, z = 1 }, 'off') == false, 'capture blocked when off')
+  T.check(tostring(camshot.lastError or ''):find('disabled', 1, true), 'disabled error')
+  package.loaded['beamngEarth/settings'] = nil
+end
+
 -- capture without jobsystem / RVM: fails cleanly, not busy-stuck
 T.check(camshot.capture({ x = 0, y = 0, z = 2 }, { x = 0, y = 10, z = 1 }, 't') == false, 'no engine: capture false')
 T.check(camshot.lastError ~= nil and not camshot.BUSY, 'error set, not busy')

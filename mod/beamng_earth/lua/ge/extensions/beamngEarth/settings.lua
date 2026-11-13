@@ -113,6 +113,9 @@ M.SCHEMA = {
   -- BeamMP started by the BeamNG.Earth app with the game (launcher.py reads this file: bmplaunch.on_launch; its
   -- "don't ask again" writes it off)
   beammpOnLaunch = { kind = 'bool', default = true, label = 'Start BeamMP with BeamNG.Earth' },
+  -- Speed-camera stills (camshot.lua RenderView) and BeamMP Discord upload (speedcam_mp.lua). Kill switch for
+  -- the 1.9.3 photo path when diagnosing BeamMP audio freezes; mandat ticket and the photo click stay.
+  speedcamPhotos = { kind = 'bool', default = true, label = 'Speed-camera photos' },
   -- the on-screen data credits (credits.lua): on by default, CC BY licences ask for visible attribution
   creditsVisible = { kind = 'bool', default = true, label = 'Data credits on screen' },
   creditsCorner = { kind = 'enum', default = 'bottom-left', values = credits.CORNERS, label = 'Data credits corner' },
@@ -155,6 +158,7 @@ M.ORDER = { 'quality', 'framePacing', 'terrainDetail', 'groundPhoto', 'trees', '
   'dashboardSatellite',
   'hudVisible', 'statusBar', 'profilerMode', 'runtimeProfiler',
   'placeNamesOnline', 'telemetry', 'telemetryPerf', 'telemetryNet', 'mapStyle', 'creditsVisible', 'beammpOnLaunch',
+  'speedcamPhotos',
   'creditsCorner', 'creditsSize', 'cacheCapGb', 'routeAvoid', 'routeDownload', 'serverCores', 'serverPriority', 'teleportPriority', 'devOutlineKm',
   'devMapKm' }
 

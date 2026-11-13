@@ -467,6 +467,17 @@ do
   T.check(on.models3dmr, 'models3dmr on the settings page')
 end
 
+-- speed-camera photo kill switch (1.9.3 RenderView / Discord path; on by default)
+do
+  local st = require('beamngEarth/settings')
+  T.check(st.SCHEMA.speedcamPhotos.kind == 'bool' and st.SCHEMA.speedcamPhotos.default == true,
+    'speedcamPhotos: on by default')
+  T.check(st.validate('speedcamPhotos', false) == false, 'speedcamPhotos: can turn off')
+  local on = {}
+  for _, k in ipairs(st.ORDER) do on[k] = true end
+  T.check(on.speedcamPhotos, 'speedcamPhotos on the settings page')
+end
+
 -- the map holds off the car's controls (the user, 2026-10-21: the controller drove the car behind the map): the stock
 -- groups and every driving action by name
 do

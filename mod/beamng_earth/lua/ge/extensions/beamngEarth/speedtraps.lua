@@ -309,39 +309,46 @@ function M.onSpeedTrapTriggered(data, playerSpeed, overSpeed)
     plate = plate,
     place = place,
   })
-  -- Low-res offscreen still from the device on the shoulder (not the mid-lane trigger).
-  local liveE = M.findLive(data.triggerName)
-  local core = rawget(_G, 'beamngEarth_core')
-  local st = core and core._state and core._state()
-  if liveE and st and st.anchor then ensureEye(liveE, st.anchor) end
-  local eye = M.eyeOf(liveE) or M.eyeFromData(data)
-  local vehPos
-  local veh = getPlayerVehicle and getPlayerVehicle(0)
-  if veh and veh.getPosition then
-    local p = veh:getPosition()
-    if p then vehPos = { x = p.x, y = p.y, z = p.z } end
-  end
-  -- Along the road into the lane (shallow), not straight down at the car in the box.
-  local target = (liveE and M.lookTarget(liveE, vehPos)) or vehPos
-  if target and vehPos and not target.z then target.z = vehPos.z + 0.5 end
-  local camshot = require('beamngEarth/camshot')
-  if eye and target then
-    local speedKmh = math.floor(speed * 3.6 + 0.5)
-    local limitKmh = math.floor(limit * 3.6 + 0.5)
-    local tag = string.format('%s_%dkmh', tostring(data.triggerName or 'cam'), speedKmh)
-    local meta = {
-      speed = speedKmh, limit = limitKmh, plate = plate, place = place,
-      time = os.date('%H:%M:%S'), date = os.date('%d.%m.%Y'),
-      photo = tostring(data.triggerName or 'CAM'):gsub('^bneCamT', ''):sub(1, 6),
-    }
-    local ok, err = pcall(camshot.fromTrap, data, eye, target, tag, meta)
-    if not ok and log then
-      log('W', 'beamngEarth', 'camshot fromTrap: ' .. tostring(err))
+  -- Offscreen still + BeamMP Discord upload (settings.speedcamPhotos kill switch: diagnosing FMOD freezes).
+  local photos = true
+  pcall(function()
+    local s = require('beamngEarth/settings')
+    if s.get and s.get('speedcamPhotos') == false then photos = false end
+  end)
+  if photos then
+    local liveE = M.findLive(data.triggerName)
+    local core = rawget(_G, 'beamngEarth_core')
+    local st = core and core._state and core._state()
+    if liveE and st and st.anchor then ensureEye(liveE, st.anchor) end
+    local eye = M.eyeOf(liveE) or M.eyeFromData(data)
+    local vehPos
+    local veh = getPlayerVehicle and getPlayerVehicle(0)
+    if veh and veh.getPosition then
+      local p = veh:getPosition()
+      if p then vehPos = { x = p.x, y = p.y, z = p.z } end
     end
-  elseif log then
-    log('W', 'beamngEarth', string.format(
-      'camshot skipped (eye=%s target=%s trigger=%s)',
-      eye and 'ok' or 'nil', target and 'ok' or 'nil', tostring(data.triggerName)))
+    -- Along the road into the lane (shallow), not straight down at the car in the box.
+    local target = (liveE and M.lookTarget(liveE, vehPos)) or vehPos
+    if target and vehPos and not target.z then target.z = vehPos.z + 0.5 end
+    local camshot = require('beamngEarth/camshot')
+    if eye and target then
+      local speedKmh = math.floor(speed * 3.6 + 0.5)
+      local limitKmh = math.floor(limit * 3.6 + 0.5)
+      local tag = string.format('%s_%dkmh', tostring(data.triggerName or 'cam'), speedKmh)
+      local meta = {
+        speed = speedKmh, limit = limitKmh, plate = plate, place = place,
+        time = os.date('%H:%M:%S'), date = os.date('%d.%m.%Y'),
+        photo = tostring(data.triggerName or 'CAM'):gsub('^bneCamT', ''):sub(1, 6),
+      }
+      local ok, err = pcall(camshot.fromTrap, data, eye, target, tag, meta)
+      if not ok and log then
+        log('W', 'beamngEarth', 'camshot fromTrap: ' .. tostring(err))
+      end
+    elseif log then
+      log('W', 'beamngEarth', string.format(
+        'camshot skipped (eye=%s target=%s trigger=%s)',
+        eye and 'ok' or 'nil', target and 'ok' or 'nil', tostring(data.triggerName)))
+    end
   end
   if Engine and Engine.Audio and Engine.Audio.playOnce then
     pcall(Engine.Audio.playOnce, 'AudioGui', 'event:>UI>Main>Photo')
